@@ -1,3 +1,22 @@
 .venv/
 MUSIC/
 
+# Archivos de configuración X11 (solo para entorno local)
+setup_x11.sh
+start_gui.sh
+README_GUI.md
+
+# VSCode
+.vscode/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+*.pyc
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
