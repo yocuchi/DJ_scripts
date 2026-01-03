@@ -1,0 +1,19 @@
+# Carpeta donde se guardarán las canciones descargadas
+# Copia este archivo a .env y edita la ruta
+# Usa una ruta absoluta o relativa
+MUSIC_FOLDER=/ruta/a/tu/carpeta/de/musica
+
+# Ejemplo para Windows:
+# MUSIC_FOLDER=C:\Users\TuUsuario\Music\DJ_Music
+
+# Ejemplo para Linux/Mac:
+# MUSIC_FOLDER=/home/tuusuario/Music/DJ_Music
+
+# Opcional: Ruta personalizada para la base de datos SQLite
+# Por defecto: ~/.youtube_music.db
+# DB_PATH=/ruta/personalizada/music.db
+
+# Opcional: API key de Last.fm para mejor detección de géneros
+# Obtén una gratis en: https://www.last.fm/api/account/create
+# LASTFM_API_KEY=tu_api_key_aqui
+

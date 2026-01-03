@@ -1,0 +1,11 @@
+yt-dlp>=2023.12.30
+mutagen>=1.47.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Dependencias opcionales para análisis de audio avanzado
+# Essentia permite clasificación de género mediante análisis de audio
+# Instalar con: pip install essentia
+# Nota: Essentia puede requerir dependencias adicionales del sistema
+# essenti>=2.1b6.dev609  # Descomentar si quieres instalar Essentia
+
