@@ -863,31 +863,47 @@ def detect_genre_online(artist: Optional[str], track: str, video_info: Optional[
     return None
 
 
-def detect_genre_from_audio_file(file_path: str) -> Optional[str]:
+def detect_genre_from_audio_file(file_path: str, log_callback=None) -> Optional[str]:
     """
     Detecta el género usando análisis de audio con Essentia.
     Esta función debe llamarse DESPUÉS de descargar el archivo.
     
     Args:
         file_path: Ruta al archivo de audio descargado
+        log_callback: Función opcional para logging (recibe un string). Si es None, usa print()
     
     Returns:
         Género detectado o None
     """
     if not ESSENTIA_AVAILABLE:
+        if log_callback:
+            log_callback("   ⚠️  Essentia no está instalado")
         return None
     
     if not Path(file_path).exists():
         return None
     
-    print("   🎵 Analizando audio con Essentia...")
+    log_msg = "   🎵 Analizando audio con Essentia..."
+    if log_callback:
+        log_callback(log_msg)
+    else:
+        print(log_msg)
+    
     genre = get_genre_from_essentia(file_path)
     
     if genre:
-        print(f"   ✓ Género detectado (análisis de audio Essentia): {genre}")
+        log_msg = f"   ✓ Género detectado (análisis de audio Essentia): {genre}"
+        if log_callback:
+            log_callback(log_msg)
+        else:
+            print(log_msg)
         return genre
     else:
-        print("   ⚠️  Essentia no pudo detectar el género del audio")
+        log_msg = "   ⚠️  Essentia no pudo detectar el género del audio"
+        if log_callback:
+            log_callback(log_msg)
+        else:
+            print(log_msg)
         return None
 
 
@@ -2378,20 +2394,25 @@ def process_imported_mp3(file_path: Path, base_folder: str,
         current_genre = metadata.get('genre', '').strip()
         if not genre_is_valid and (not current_genre or 
             current_genre.lower() in ['unknown', 'desconocido', 'sin clasificar', ''] or
-            len(current_genre) < 2) and metadata.get('artist'):
-            detected_genre = detect_genre_online(
-                metadata.get('artist'),
-                metadata.get('title', ''),
-                video_info=video_info,
-                title=metadata.get('title', ''),
-                description=""
-            )
-            if detected_genre:
-                metadata['genre'] = detected_genre
+            len(current_genre) < 2):
+            # Intentar detectar género online si hay artista
+            if metadata.get('artist'):
+                detected_genre = detect_genre_online(
+                    metadata.get('artist'),
+                    metadata.get('title', ''),
+                    video_info=video_info,
+                    title=metadata.get('title', ''),
+                    description=""
+                )
+                if detected_genre:
+                    metadata['genre'] = detected_genre
+                else:
+                    metadata['genre'] = 'Sin Clasificar'
             else:
-                metadata['genre'] = 'Sin Clasificar'
+                # Si no hay artista, intentar directamente con Essentia (análisis de audio)
+                metadata['genre'] = 'Sin Clasificar'  # Temporal, se intentará actualizar con Essentia
         elif not current_genre and not genre_is_valid:
-            # Si no hay artista, usar 'Sin Clasificar'
+            # Si no hay género, usar 'Sin Clasificar' temporalmente
             metadata['genre'] = 'Sin Clasificar'
         elif genre_is_valid:
             # Si el género ya detectado es válido, asegurarse de que se use
@@ -2400,6 +2421,14 @@ def process_imported_mp3(file_path: Path, base_folder: str,
         # Si no hay año, usar año actual
         if not metadata.get('year'):
             metadata['year'] = str(datetime.now().year)
+        
+        # ANTES de determinar la carpeta de destino, intentar usar Essentia si el género es genérico
+        # Esto es especialmente útil cuando no hay artista
+        if (not metadata.get('genre') or 
+            metadata.get('genre', '').lower() in ['sin clasificar', 'unknown', 'desconocido', '']):
+            detected_genre = detect_genre_from_audio_file(str(file_path))
+            if detected_genre:
+                metadata['genre'] = detected_genre
         
         # Obtener carpeta de destino
         output_folder = get_output_folder(base_folder, metadata.get('genre'), metadata.get('year'))
@@ -2415,21 +2444,44 @@ def process_imported_mp3(file_path: Path, base_folder: str,
         
         # Si el archivo ya está en la ubicación correcta, no copiarlo
         if file_path == new_file_path:
-            # Si no se detectó género o es genérico, intentar con Essentia
+            # Si aún no se detectó género o es genérico, intentar con Essentia una vez más
             if (not metadata.get('genre') or 
                 metadata.get('genre', '').lower() in ['sin clasificar', 'unknown', 'desconocido', '']):
                 detected_genre = detect_genre_from_audio_file(str(file_path))
                 if detected_genre:
                     metadata['genre'] = detected_genre
+                    # Si cambió el género, actualizar la carpeta de destino
+                    output_folder = get_output_folder(base_folder, metadata.get('genre'), metadata.get('year'))
+                    if file_path.parent != output_folder:
+                        # El archivo necesita moverse a la nueva carpeta
+                        new_filename = output_folder / file_path.name
+                        if not new_filename.exists():
+                            output_folder.mkdir(parents=True, exist_ok=True)
+                            shutil.move(str(file_path), str(new_filename))
+                            final_file_path = new_filename
+                        else:
+                            final_file_path = file_path
+                    else:
+                        final_file_path = file_path
+                else:
+                    final_file_path = file_path
+            else:
+                final_file_path = file_path
             
-            # Solo actualizar metadatos si es necesario
-            if video_info:
-                add_id3_tags(str(file_path), metadata, video_info or {})
-            final_file_path = file_path
+            # Actualizar metadatos siempre para asegurar que los ID3 tags estén actualizados
+            add_id3_tags(str(final_file_path), metadata, video_info or {})
         else:
             # Verificar si el archivo ya existe exactamente (sin variaciones)
             if new_file_path.exists():
-                # El archivo ya existe, omitirlo
+                # El archivo ya existe, pero intentar actualizar metadatos si el género cambió
+                # Intentar usar Essentia si el género es genérico
+                if (not metadata.get('genre') or 
+                    metadata.get('genre', '').lower() in ['sin clasificar', 'unknown', 'desconocido', '']):
+                    detected_genre = detect_genre_from_audio_file(str(new_file_path))
+                    if detected_genre:
+                        metadata['genre'] = detected_genre
+                        # Actualizar metadatos del archivo existente
+                        add_id3_tags(str(new_file_path), metadata, video_info or {})
                 return None
             
             # Copiar el archivo a la nueva ubicación

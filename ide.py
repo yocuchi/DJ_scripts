@@ -57,7 +57,8 @@ from download_youtube import (
     get_genre_from_database, get_genre_from_video_tags, get_genre_from_channel_name,
     get_genre_from_description_deep, get_genre_from_lastfm, get_genre_from_musicbrainz,
     get_genre_from_web_search, get_genre_from_hashtags, get_genre_from_spotify_search,
-    read_id3_tags, search_youtube_music_url, process_imported_mp3, get_decade_from_year
+    read_id3_tags, search_youtube_music_url, process_imported_mp3, get_decade_from_year,
+    detect_genre_from_audio_file
 )
 from download_quick import download_quick
 from query_db import show_statistics, search_songs
@@ -69,6 +70,10 @@ load_dotenv()
 DB_PATH = os.getenv('DB_PATH', None)
 db = MusicDatabase(DB_PATH)
 MUSIC_FOLDER = os.getenv('MUSIC_FOLDER', os.path.expanduser('~/Music'))
+
+# Información del software
+SOFTWARE_NAME = "DJ_CUCHIDownloader"
+GITHUB_URL = "https://github.com/yocuchi/DJ_scripts"
 
 
 class MusicDownloaderGUI:
@@ -292,6 +297,9 @@ class MusicDownloaderGUI:
         
         # Pestaña 5: Testing/Pruebas
         self.setup_testing_tab()
+        
+        # Pestaña 6: About
+        self.setup_about_tab()
     
     def setup_download_tab(self):
         """Configura la pestaña de descarga."""
@@ -616,6 +624,61 @@ class MusicDownloaderGUI:
         
         clear_btn = ttk.Button(log_frame, text="🗑️ Limpiar Log", command=self.clear_test_log)
         clear_btn.grid(row=1, column=0, pady=5)
+    
+    def setup_about_tab(self):
+        """Configura la pestaña About con información del software."""
+        about_tab = ttk.Frame(self.notebook, padding="20")
+        self.notebook.add(about_tab, text="ℹ️ About")
+        about_tab.columnconfigure(0, weight=1)
+        
+        # Frame central para centrar el contenido
+        center_frame = ttk.Frame(about_tab)
+        center_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        about_tab.rowconfigure(0, weight=1)
+        about_tab.columnconfigure(0, weight=1)
+        center_frame.columnconfigure(0, weight=1)
+        
+        # Título del software
+        title_font = self._get_best_font_for_emojis()
+        title_label = ttk.Label(center_frame, text=SOFTWARE_NAME, 
+                               font=(title_font, 24, 'bold'))
+        title_label.grid(row=0, column=0, pady=(20, 10))
+        
+        # Descripción
+        desc_text = "Descargador de música de YouTube para DJ\ncon gestión de metadatos y base de datos"
+        desc_label = ttk.Label(center_frame, text=desc_text, 
+                              font=self.default_font, justify=tk.CENTER)
+        desc_label.grid(row=1, column=0, pady=10)
+        
+        # Separador
+        separator = ttk.Separator(center_frame, orient='horizontal')
+        separator.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=20)
+        
+        # Información de GitHub
+        github_frame = ttk.Frame(center_frame)
+        github_frame.grid(row=3, column=0, pady=10)
+        
+        github_label = ttk.Label(github_frame, text="GitHub:", font=self.default_font)
+        github_label.grid(row=0, column=0, padx=5)
+        
+        # URL de GitHub como botón clickeable
+        github_link = ttk.Label(github_frame, text=GITHUB_URL, 
+                               font=('Arial', 10, 'underline'),
+                               foreground='blue', cursor='hand2')
+        github_link.grid(row=0, column=1, padx=5)
+        github_link.bind('<Button-1>', lambda e: webbrowser.open(GITHUB_URL))
+        github_link.bind('<Enter>', lambda e: github_link.config(foreground='darkblue'))
+        github_link.bind('<Leave>', lambda e: github_link.config(foreground='blue'))
+        
+        # Versión (opcional, puedes añadir una variable VERSION si quieres)
+        version_label = ttk.Label(center_frame, text="Versión: 1.0.0", 
+                                 font=('Arial', 9), foreground='gray')
+        version_label.grid(row=4, column=0, pady=(20, 0))
+        
+        # Copyright
+        copyright_label = ttk.Label(center_frame, text="© 2024", 
+                                   font=('Arial', 9), foreground='gray')
+        copyright_label.grid(row=5, column=0, pady=5)
     
     def setup_output_capture(self):
         """Configura la captura de salida para mostrar prints en el log."""
@@ -2501,9 +2564,16 @@ class MusicDownloaderGUI:
                                     existing_metadata['genre'] = genre
                                     self.import_log(f"  ⚠️  Género no detectado, usando 'Sin Clasificar'")
                         elif not genre:
-                            genre = 'Sin Clasificar'
-                            existing_metadata['genre'] = genre
-                            self.import_log(f"  ⚠️  Sin artista, usando 'Sin Clasificar'")
+                            # Si no hay artista, intentar usar Essentia (análisis de audio)
+                            self.import_log(f"  ⚠️  Sin artista, intentando análisis de audio con Essentia...")
+                            detected_genre = detect_genre_from_audio_file(str(mp3_file), log_callback=self.import_log)
+                            if detected_genre:
+                                genre = detected_genre
+                                existing_metadata['genre'] = genre
+                            else:
+                                genre = 'Sin Clasificar'
+                                existing_metadata['genre'] = genre
+                                self.import_log(f"  ⚠️  No se pudo detectar género, usando 'Sin Clasificar'")
                         
                         # Si no hay año, usar año actual
                         if not year:

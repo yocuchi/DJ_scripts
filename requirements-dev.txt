@@ -1,0 +1,3 @@
+# Dependencias para desarrollo y construcción de ejecutables
+pyinstaller>=6.0.0
+
