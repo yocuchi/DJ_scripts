@@ -1,6 +1,10 @@
 .venv/
 MUSIC/
 
+# Archivos sensibles (no subir a GitHub)
+.env
+youtube_cookies.txt
+
 # Archivos de configuración X11 (solo para entorno local)
 setup_x11.sh
 start_gui.sh
