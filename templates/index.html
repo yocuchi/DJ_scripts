@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎵 Gestor de Música para DJ</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        /* Sistema de Tabs */
+        .tabs {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+            overflow-x: auto;
+        }
+        
+        .tab {
+            padding: 15px 25px;
+            cursor: pointer;
+            background: #f8f9fa;
+            border: none;
+            border-bottom: 3px solid transparent;
+            font-size: 16px;
+            font-weight: bold;
+            color: #666;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+        
+        .tab:hover {
+            background: #e9ecef;
+        }
+        
+        .tab.active {
+            background: white;
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 20px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Estilos comunes */
+        .control-group {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .control-group label {
+            font-weight: bold;
+            min-width: 150px;
+        }
+        
+        .control-group input, .control-group select, .control-group textarea {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .control-group textarea {
+            min-height: 100px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            background: #5568d3;
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover:not(:disabled) {
+            background: #218838;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover:not(:disabled) {
+            background: #c82333;
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .log-container {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .song-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s;
+            gap: 15px;
+        }
+        
+        .song-item:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .song-item.downloading {
+            background: #e0e0e0;
+            opacity: 0.7;
+        }
+        
+        .song-item.downloaded {
+            background: #d4edda;
+            border-color: #c3e6cb;
+        }
+        
+        .song-item.rejected {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+        }
+        
+        .thumbnail-container {
+            position: relative;
+            width: 320px;
+            height: 180px;
+            flex-shrink: 0;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            background: #000;
+        }
+        
+        .thumbnail-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .video-player {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        .song-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .song-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        
+        .song-meta {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #667eea;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            padding-right: 25px;
+        }
+        
+        th:hover {
+            background: #5568d3;
+        }
+        
+        th.sortable::after {
+            content: ' ↕';
+            position: absolute;
+            right: 8px;
+            opacity: 0.5;
+        }
+        
+        th.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+        
+        th.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
+        }
+        
+        tr:hover {
+            background: #f5f5f5;
+        }
+        
+        .album-art {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 5px;
+            border: 2px solid #ddd;
+            background: #f0f0f0;
+            display: block;
+            margin: 0 auto;
+        }
+        
+        .album-art-cell {
+            width: 80px;
+            text-align: center;
+            padding: 8px !important;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-card h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        .stat-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        /* Menú contextual */
+        .context-menu {
+            display: none;
+            position: absolute;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1000;
+            min-width: 200px;
+            padding: 5px 0;
+        }
+        
+        .context-menu-item {
+            padding: 10px 20px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .context-menu-item:hover {
+            background: #f0f0f0;
+        }
+        
+        .context-menu-item.danger {
+            color: #dc3545;
+        }
+        
+        .context-menu-item.danger:hover {
+            background: #f8d7da;
+        }
+        
+        tr.context-menu-active {
+            background: #e3f2fd !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎵 Gestor de Música para DJ</h1>
+            <p>Gestiona y descarga tu música de YouTube</p>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('download')">📥 Descargar</button>
+            <button class="tab" onclick="showTab('database')">💾 Base de Datos</button>
+            <button class="tab" onclick="showTab('playlist')">🎵 Playlist Youtube</button>
+            <button class="tab" onclick="showTab('import')">📁 Importar Carpeta</button>
+            <button class="tab" onclick="showTab('testing')">🧪 Testing</button>
+            <button class="tab" onclick="showTab('config')">⚙️ Configuración</button>
+            <button class="tab" onclick="showTab('about')">ℹ️ About</button>
+        </div>
+        
+        <!-- Pestaña: Descargar -->
+        <div id="download" class="tab-content active">
+            <h2>📥 Descarga Directa</h2>
+            <div class="control-group">
+                <label>URL de YouTube:</label>
+                <input type="text" id="direct-url" placeholder="Pega aquí la URL de YouTube">
+            </div>
+            <div class="control-group">
+                <button class="btn btn-primary" onclick="downloadDirect()">📥 Descargar (con metadatos)</button>
+                <button class="btn btn-primary" onclick="downloadQuick()">⚡ Descarga Rápida</button>
+                <button class="btn btn-primary" onclick="getVideoInfo()">🎵 Info del Video</button>
+            </div>
+            <div class="log-container" id="download-log"></div>
+        </div>
+        
+        <!-- Pestaña: Base de Datos -->
+        <div id="database" class="tab-content">
+            <h2>💾 Base de Datos</h2>
+            <div class="control-group">
+                <label>🔍 Buscar:</label>
+                <input type="text" id="db-search" placeholder="Buscar en todas las columnas..." onkeyup="searchDatabase()">
+                <button class="btn btn-primary" onclick="loadDatabase()">🔄 Actualizar</button>
+                <button class="btn btn-primary" onclick="showStatistics()">📊 Estadísticas</button>
+            </div>
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="show-ignored-only" onchange="loadDatabase()"> Mostrar solo ignoradas
+                </label>
+            </div>
+            <div id="database-results"></div>
+            <div class="log-container" id="database-log"></div>
+        </div>
+        
+        <!-- Pestaña: Playlist Youtube -->
+        <div id="playlist" class="tab-content">
+            <h2>🎵 Playlist Youtube</h2>
+            <div class="control-group">
+                <label>URL de Playlist:</label>
+                <input type="text" id="playlist-url" value="https://music.youtube.com/playlist?list=LM" placeholder="URL de la playlist de YouTube">
+            </div>
+            <div class="control-group">
+                <label>Número de canciones:</label>
+                <input type="number" id="limit" value="20" min="1" max="100">
+            </div>
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="hide-ignored" checked> Ocultar descargadas e ignoradas
+                </label>
+            </div>
+            <div class="control-group">
+                <button class="btn btn-primary" onclick="loadPlaylist()">🔄 Cargar Playlist</button>
+            </div>
+            <div id="playlist-results"></div>
+            <div class="log-container" id="playlist-log"></div>
+        </div>
+        
+        <!-- Pestaña: Importar Carpeta -->
+        <div id="import" class="tab-content">
+            <h2>📁 Importar Carpeta</h2>
+            <div class="control-group">
+                <label>Ruta de la carpeta:</label>
+                <input type="text" id="import-folder" placeholder="Ruta de la carpeta con MP3s">
+                <button class="btn btn-primary" onclick="browseFolder()">📂 Buscar Carpeta</button>
+            </div>
+            <div class="control-group">
+                <button class="btn btn-success" onclick="importFolder()">🔄 Importar Canciones</button>
+            </div>
+            <div class="log-container" id="import-log"></div>
+        </div>
+        
+        <!-- Pestaña: Testing -->
+        <div id="testing" class="tab-content">
+            <h2>🧪 Testing</h2>
+            <div class="control-group">
+                <label>URL de prueba:</label>
+                <input type="text" id="test-url" placeholder="URL de YouTube para pruebas">
+            </div>
+            <div class="control-group">
+                <button class="btn btn-primary" onclick="testDownload()">🧪 Probar Descarga</button>
+                <button class="btn btn-primary" onclick="testGenre()">🎵 Probar Detección de Género</button>
+            </div>
+            <div class="log-container" id="testing-log"></div>
+        </div>
+        
+        <!-- Pestaña: Configuración -->
+        <div id="config" class="tab-content">
+            <h2>⚙️ Configuración</h2>
+            <div class="control-group">
+                <label>Carpeta de Música:</label>
+                <input type="text" id="config-music-folder" placeholder="Ruta de la carpeta de música">
+                <button class="btn btn-primary" onclick="browseMusicFolder()">📂 Seleccionar</button>
+            </div>
+            <div class="control-group">
+                <label>Ruta Base de Datos:</label>
+                <input type="text" id="config-db-path" placeholder="Ruta del archivo de base de datos">
+                <button class="btn btn-primary" onclick="browseDbPath()">📂 Seleccionar</button>
+            </div>
+            <div class="control-group">
+                <label>Last.fm API Key:</label>
+                <input type="text" id="config-lastfm-key" placeholder="API Key de Last.fm">
+            </div>
+            <div class="control-group">
+                <button class="btn btn-success" onclick="saveConfig()">💾 Guardar Configuración</button>
+            </div>
+            <div style="margin-top: 30px; padding: 20px; background: #fff3cd; border-radius: 10px;">
+                <h3>⚠️ Zona de Peligro</h3>
+                <p style="margin: 10px 0;">Estas acciones son destructivas e irreversibles</p>
+                <button class="btn btn-danger" onclick="resetDatabase()">💣 RESETEAR BASE DE DATOS</button>
+            </div>
+            <div class="log-container" id="config-log"></div>
+        </div>
+        
+        <!-- Pestaña: About -->
+        <div id="about" class="tab-content">
+            <h2>ℹ️ About</h2>
+            <div style="text-align: center; padding: 40px;">
+                <h1 style="color: #667eea; margin-bottom: 20px;">🎵 Gestor de Música para DJ</h1>
+                <p style="font-size: 1.2em; margin-bottom: 30px;">Descargador de música de YouTube para DJ<br>con gestión de metadatos y base de datos</p>
+                <hr style="margin: 30px 0;">
+                <p style="margin: 20px 0;"><strong>Versión:</strong> 1.0.0</p>
+                <p style="margin: 20px 0;"><strong>GitHub:</strong> <a href="https://github.com/tu-usuario/tu-repo" target="_blank">https://github.com/tu-usuario/tu-repo</a></p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentVideoPlayer = null;
+        
+        // Sistema de tabs
+        function showTab(tabName) {
+            // Ocultar todos los contenidos
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Desactivar todos los tabs
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Mostrar el contenido seleccionado
+            document.getElementById(tabName).classList.add('active');
+            
+            // Activar el tab seleccionado
+            event.target.classList.add('active');
+            
+            // Cargar datos si es necesario
+            if (tabName === 'database') {
+                loadDatabase();
+            } else if (tabName === 'playlist') {
+                loadPlaylist();
+            } else if (tabName === 'config') {
+                loadConfig();
+            }
+        }
+        
+        // Funciones de log
+        function log(tabId, message) {
+            const logEl = document.getElementById(tabId + '-log');
+            if (logEl) {
+                const timestamp = new Date().toLocaleTimeString();
+                logEl.textContent += `[${timestamp}] ${message}\n`;
+                logEl.scrollTop = logEl.scrollHeight;
+                // Mostrar el contenedor cuando tiene contenido
+                if (logEl.textContent.trim()) {
+                    logEl.style.display = 'block';
+                }
+            }
+        }
+        
+        function clearLog(tabId) {
+            const logEl = document.getElementById(tabId + '-log');
+            if (logEl) {
+                logEl.textContent = '';
+                // Ocultar el contenedor cuando está vacío
+                logEl.style.display = 'none';
+            }
+        }
+        
+        // ========== PESTAÑA: DESCARGAR ==========
+        async function downloadDirect() {
+            const url = document.getElementById('direct-url').value.trim();
+            if (!url) {
+                alert('Por favor, ingresa una URL');
+                return;
+            }
+            
+            clearLog('download');
+            log('download', `📥 Iniciando descarga directa: ${url}`);
+            
+            try {
+                const response = await fetch('/api/download/direct', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    log('download', '✅ Descarga iniciada. Monitoreando progreso...');
+                    monitorDirectDownload(data.task_id);
+                } else {
+                    log('download', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('download', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function downloadQuick() {
+            const url = document.getElementById('direct-url').value.trim();
+            if (!url) {
+                alert('Por favor, ingresa una URL');
+                return;
+            }
+            
+            clearLog('download');
+            log('download', `⚡ Iniciando descarga rápida: ${url}`);
+            
+            try {
+                const response = await fetch('/api/download/quick', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    log('download', '✅ Descarga rápida iniciada');
+                } else {
+                    log('download', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('download', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function getVideoInfo() {
+            const url = document.getElementById('direct-url').value.trim();
+            if (!url) {
+                alert('Por favor, ingresa una URL');
+                return;
+            }
+            
+            clearLog('download');
+            log('download', `🎵 Obteniendo información del video...`);
+            
+            try {
+                const response = await fetch('/api/video/info', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    log('download', `\n📋 Información del Video:\n${JSON.stringify(data.info, null, 2)}`);
+                } else {
+                    log('download', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('download', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        function monitorDirectDownload(taskId) {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/download/status/${taskId}`);
+                    const data = await response.json();
+                    
+                    if (data.status && data.status.status === 'completed') {
+                        clearInterval(interval);
+                        log('download', '✅ Descarga completada');
+                    } else if (data.status === 'completed') {
+                        clearInterval(interval);
+                        log('download', '✅ Descarga completada');
+                    } else if (data.status && data.status.status === 'error') {
+                        clearInterval(interval);
+                        log('download', `❌ Error: ${data.status.error}`);
+                    } else if (data.status === 'error') {
+                        clearInterval(interval);
+                        log('download', `❌ Error: ${data.error}`);
+                    } else if (data.logs) {
+                        data.logs.forEach(logMsg => {
+                            if (!document.getElementById('download-log').textContent.includes(logMsg)) {
+                                log('download', logMsg);
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error monitoreando descarga:', error);
+                }
+            }, 2000);
+        }
+        
+        // ========== PESTAÑA: BASE DE DATOS ==========
+        async function loadDatabase() {
+            const search = document.getElementById('db-search').value;
+            const showIgnored = document.getElementById('show-ignored-only').checked;
+            
+            clearLog('database');
+            log('database', '🔄 Cargando base de datos...');
+            
+            try {
+                const response = await fetch(`/api/database/songs?search=${encodeURIComponent(search)}&show_ignored=${showIgnored}`);
+                
+                // Verificar si la respuesta es JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    log('database', `❌ Error: El servidor devolvió HTML en lugar de JSON. ¿Está el servidor Flask corriendo?`);
+                    log('database', `Respuesta recibida: ${text.substring(0, 200)}...`);
+                    return;
+                }
+                
+                // Verificar el status code
+                if (!response.ok) {
+                    log('database', `❌ Error HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderDatabaseTable(data.songs);
+                    log('database', `✅ ${data.count} canciones encontradas`);
+                } else {
+                    log('database', `❌ Error: ${data.error || 'Error desconocido'}`);
+                }
+            } catch (error) {
+                if (error.message.includes('JSON') || error.message.includes('Unexpected token')) {
+                    log('database', `❌ Error: El servidor no devolvió JSON válido. Verifica que el servidor Flask esté corriendo en http://127.0.0.1:5000`);
+                } else {
+                    log('database', `❌ Error: ${error.message}`);
+                }
+                console.error('Error completo:', error);
+            }
+        }
+        
+        function searchDatabase() {
+            loadDatabase();
+        }
+        
+        // Variables globales para ordenamiento
+        let currentSortColumn = null;
+        let currentSortDirection = 'asc';
+        let allSongs = [];
+        
+        function renderDatabaseTable(songs) {
+            const container = document.getElementById('database-results');
+            
+            // Guardar todas las canciones para ordenamiento
+            allSongs = songs;
+            
+            if (songs.length === 0) {
+                container.innerHTML = '<p style="text-align: center; padding: 40px;">No se encontraron canciones</p>';
+                return;
+            }
+            
+            // Aplicar ordenamiento si hay uno activo
+            if (currentSortColumn) {
+                songs = sortSongs(songs, currentSortColumn, currentSortDirection);
+            }
+            
+            // Formatear fecha de descarga
+            function formatDate(dateStr) {
+                if (!dateStr) return 'N/A';
+                try {
+                    const date = new Date(dateStr);
+                    if (isNaN(date.getTime())) return dateStr;
+                    return date.toLocaleDateString('es-ES', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                } catch (e) {
+                    return dateStr;
+                }
+            }
+            
+            // Formatear origen
+            function formatSource(source) {
+                if (!source) return 'N/A';
+                const sourceMap = {
+                    'playlist': '📋 Playlist',
+                    'direct': '🔗 Directo',
+                    'import': '📁 Importado',
+                    'puntual': '⚡ Puntual'
+                };
+                return sourceMap[source] || source;
+            }
+            
+            let html = '<table><thead><tr>';
+            html += '<th class="album-art-cell">Portada</th>';
+            html += '<th class="sortable" data-column="title" onclick="sortTable(\'title\')">Título</th>';
+            html += '<th class="sortable" data-column="artist" onclick="sortTable(\'artist\')">Artista</th>';
+            html += '<th class="sortable" data-column="genre" onclick="sortTable(\'genre\')">Género</th>';
+            html += '<th class="sortable" data-column="year" onclick="sortTable(\'year\')">Año</th>';
+            html += '<th class="sortable" data-column="downloaded_at" onclick="sortTable(\'downloaded_at\')">Fecha Descarga</th>';
+            html += '<th class="sortable" data-column="download_source" onclick="sortTable(\'download_source\')">Origen</th>';
+            html += '<th>Archivo</th>';
+            html += '</tr></thead><tbody>';
+            
+            songs.forEach(song => {
+                const videoId = song.video_id || '';
+                const thumbnailUrl = song.thumbnail_url || '';
+                const albumArtHtml = thumbnailUrl 
+                    ? `<img src="${thumbnailUrl}" alt="Album Art" class="album-art" onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'width:60px;height:60px;background:#f0f0f0;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#999;font-size:20px;\'>🎵</div>'">`
+                    : '<div style="width:60px;height:60px;background:#f0f0f0;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#999;font-size:20px;margin:0 auto;">🎵</div>';
+                
+                html += `<tr data-video-id="${videoId}" class="db-row">
+                    <td class="album-art-cell">${albumArtHtml}</td>
+                    <td>${song.title || 'N/A'}</td>
+                    <td>${song.artist || 'N/A'}</td>
+                    <td>${song.genre || 'N/A'}</td>
+                    <td>${song.year || 'N/A'}</td>
+                    <td>${formatDate(song.downloaded_at)}</td>
+                    <td>${formatSource(song.download_source)}</td>
+                    <td>${song.file_path || 'N/A'}</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+            
+            // Actualizar indicadores de ordenamiento en los headers
+            updateSortIndicators();
+            
+            // Añadir event listeners para el menú contextual
+            setupContextMenu();
+        }
+        
+        function sortTable(column) {
+            // Si se hace clic en la misma columna, invertir dirección
+            if (currentSortColumn === column) {
+                currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSortColumn = column;
+                currentSortDirection = 'asc';
+            }
+            
+            // Re-renderizar la tabla con el nuevo ordenamiento
+            renderDatabaseTable(allSongs);
+        }
+        
+        function sortSongs(songs, column, direction) {
+            const sorted = [...songs];
+            
+            sorted.sort((a, b) => {
+                let aVal = a[column];
+                let bVal = b[column];
+                
+                // Manejar valores nulos/undefined
+                if (aVal === null || aVal === undefined) aVal = '';
+                if (bVal === null || bVal === undefined) bVal = '';
+                
+                // Convertir a string para comparación
+                aVal = String(aVal).toLowerCase();
+                bVal = String(bVal).toLowerCase();
+                
+                // Ordenamiento especial para fechas
+                if (column === 'downloaded_at') {
+                    const dateA = a[column] ? new Date(a[column]) : new Date(0);
+                    const dateB = b[column] ? new Date(b[column]) : new Date(0);
+                    if (direction === 'asc') {
+                        return dateA - dateB;
+                    } else {
+                        return dateB - dateA;
+                    }
+                }
+                
+                // Ordenamiento especial para números (año)
+                if (column === 'year') {
+                    const numA = parseInt(aVal) || 0;
+                    const numB = parseInt(bVal) || 0;
+                    if (direction === 'asc') {
+                        return numA - numB;
+                    } else {
+                        return numB - numA;
+                    }
+                }
+                
+                // Ordenamiento alfabético
+                if (direction === 'asc') {
+                    return aVal.localeCompare(bVal);
+                } else {
+                    return bVal.localeCompare(aVal);
+                }
+            });
+            
+            return sorted;
+        }
+        
+        function updateSortIndicators() {
+            // Remover todas las clases de ordenamiento
+            document.querySelectorAll('th.sortable').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+            });
+            
+            // Añadir clase al header activo
+            if (currentSortColumn) {
+                const activeHeader = document.querySelector(`th[data-column="${currentSortColumn}"]`);
+                if (activeHeader) {
+                    activeHeader.classList.add(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+                }
+            }
+        }
+        
+        function setupContextMenu() {
+            // Crear menú contextual si no existe
+            let contextMenu = document.getElementById('db-context-menu');
+            if (!contextMenu) {
+                contextMenu = document.createElement('div');
+                contextMenu.id = 'db-context-menu';
+                contextMenu.className = 'context-menu';
+                contextMenu.innerHTML = `
+                    <div class="context-menu-item" onclick="playSelectedSong()">🎵 Escuchar canción</div>
+                    <div class="context-menu-item danger" onclick="deleteSelectedSong()">🗑️ Borrar fichero y entrada</div>
+                `;
+                document.body.appendChild(contextMenu);
+                
+                // Prevenir que el clic en el menú lo oculte
+                contextMenu.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                });
+            }
+            
+            // Remover listeners anteriores
+            const rows = document.querySelectorAll('.db-row');
+            rows.forEach(row => {
+                row.removeEventListener('contextmenu', handleContextMenu);
+                row.removeEventListener('click', hideContextMenu);
+                row.addEventListener('contextmenu', handleContextMenu);
+                row.addEventListener('click', hideContextMenu);
+            });
+            
+            // Ocultar menú al hacer clic fuera
+            document.removeEventListener('click', hideContextMenu);
+            document.addEventListener('click', hideContextMenu);
+        }
+        
+        let selectedVideoId = null;
+        let selectedRow = null;
+        
+        function handleContextMenu(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const row = e.currentTarget;
+            selectedVideoId = row.getAttribute('data-video-id');
+            selectedRow = row;
+            
+            if (!selectedVideoId) {
+                return;
+            }
+            
+            // Remover clase activa de otras filas
+            document.querySelectorAll('.db-row').forEach(r => {
+                r.classList.remove('context-menu-active');
+            });
+            
+            // Añadir clase activa a la fila seleccionada
+            row.classList.add('context-menu-active');
+            
+            // Mostrar menú contextual
+            const contextMenu = document.getElementById('db-context-menu');
+            contextMenu.style.display = 'block';
+            contextMenu.style.left = e.pageX + 'px';
+            contextMenu.style.top = e.pageY + 'px';
+        }
+        
+        function hideContextMenu() {
+            const contextMenu = document.getElementById('db-context-menu');
+            if (contextMenu) {
+                contextMenu.style.display = 'none';
+            }
+            
+            // Remover clase activa de todas las filas
+            document.querySelectorAll('.db-row').forEach(r => {
+                r.classList.remove('context-menu-active');
+            });
+        }
+        
+        async function deleteSelectedSong() {
+            if (!selectedVideoId) {
+                alert('No hay canción seleccionada');
+                return;
+            }
+            
+            if (!confirm('¿Estás seguro de que deseas eliminar esta canción?\n\nEsta acción eliminará el archivo y la entrada de la base de datos.')) {
+                return;
+            }
+            
+            hideContextMenu();
+            log('database', `🗑️ Eliminando canción: ${selectedVideoId}`);
+            
+            try {
+                const response = await fetch('/api/database/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_id: selectedVideoId })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    log('database', `✅ Canción eliminada correctamente`);
+                    if (data.file_deleted) {
+                        log('database', `✓ Archivo eliminado: ${data.file_path}`);
+                    } else {
+                        log('database', `⚠️ Archivo no encontrado o no se pudo eliminar: ${data.file_path}`);
+                    }
+                    
+                    // Recargar la tabla
+                    loadDatabase();
+                } else {
+                    log('database', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('database', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function playSelectedSong() {
+            if (!selectedVideoId) {
+                alert('No hay canción seleccionada');
+                return;
+            }
+            
+            hideContextMenu();
+            log('database', `🎵 Reproduciendo canción: ${selectedVideoId}`);
+            
+            try {
+                const response = await fetch('/api/database/play', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_id: selectedVideoId })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    log('database', `✅ Reproduciendo: ${data.artist || 'N/A'} - ${data.title || 'N/A'}`);
+                    
+                    // Crear elemento de audio para reproducir
+                    const audio = document.createElement('audio');
+                    audio.src = data.file_url || `/api/database/file?path=${encodeURIComponent(data.file_path)}`;
+                    audio.controls = true;
+                    audio.style.width = '100%';
+                    audio.style.marginTop = '10px';
+                    audio.style.marginBottom = '10px';
+                    audio.style.padding = '10px';
+                    audio.style.backgroundColor = '#f8f9fa';
+                    audio.style.borderRadius = '5px';
+                    
+                    // Añadir al contenedor de resultados
+                    const container = document.getElementById('database-results');
+                    const existingAudio = container.querySelector('audio');
+                    if (existingAudio) {
+                        existingAudio.remove();
+                    }
+                    
+                    // Crear un contenedor para el reproductor
+                    const playerContainer = document.createElement('div');
+                    playerContainer.style.marginBottom = '20px';
+                    playerContainer.style.padding = '15px';
+                    playerContainer.style.backgroundColor = '#e3f2fd';
+                    playerContainer.style.borderRadius = '10px';
+                    playerContainer.style.border = '2px solid #667eea';
+                    
+                    const titleDiv = document.createElement('div');
+                    titleDiv.style.fontWeight = 'bold';
+                    titleDiv.style.marginBottom = '5px';
+                    titleDiv.textContent = `🎵 ${data.artist || 'N/A'} - ${data.title || 'N/A'}`;
+                    playerContainer.appendChild(titleDiv);
+                    playerContainer.appendChild(audio);
+                    
+                    container.insertBefore(playerContainer, container.firstChild);
+                    
+                    // Intentar reproducir
+                    audio.play().catch(e => {
+                        log('database', `⚠️ No se pudo reproducir automáticamente. Usa los controles del reproductor.`);
+                    });
+                } else {
+                    log('database', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('database', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function showStatistics() {
+            clearLog('database');
+            log('database', '📊 Obteniendo estadísticas...');
+            
+            try {
+                const response = await fetch('/api/database/statistics');
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderStatistics(data.stats);
+                    log('database', '✅ Estadísticas cargadas');
+                } else {
+                    log('database', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('database', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        function renderStatistics(stats) {
+            const container = document.getElementById('database-results');
+            
+            let html = '<div class="stats-grid">';
+            html += `<div class="stat-card"><h3>Total Canciones</h3><div class="value">${stats.total_songs || 0}</div></div>`;
+            html += `<div class="stat-card"><h3>Videos Rechazados</h3><div class="value">${stats.rejected_count || 0}</div></div>`;
+            html += `<div class="stat-card"><h3>Tamaño Total</h3><div class="value">${(stats.total_size_bytes / (1024 * 1024)).toFixed(2)} MB</div></div>`;
+            html += '</div>';
+            
+            if (stats.by_genre) {
+                html += '<h3 style="margin-top: 30px;">Por Género:</h3><ul>';
+                for (const [genre, count] of Object.entries(stats.by_genre).sort((a, b) => b[1] - a[1])) {
+                    html += `<li>${genre}: ${count}</li>`;
+                }
+                html += '</ul>';
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        // ========== PESTAÑA: PLAYLIST ==========
+        async function loadPlaylist() {
+            const playlistUrl = document.getElementById('playlist-url').value;
+            const limit = document.getElementById('limit').value;
+            const hideIgnored = document.getElementById('hide-ignored').checked;
+            
+            clearLog('playlist');
+            log('playlist', `🔄 Cargando playlist...`);
+            
+            try {
+                const response = await fetch(`/api/playlist?url=${encodeURIComponent(playlistUrl)}&limit=${limit}&hide_ignored=${hideIgnored}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderPlaylist(data.videos);
+                    log('playlist', `✅ Playlist cargada: ${data.count} canciones`);
+                } else {
+                    log('playlist', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('playlist', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        function renderPlaylist(videos) {
+            const container = document.getElementById('playlist-results');
+            
+            if (videos.length === 0) {
+                container.innerHTML = '<p style="text-align: center; padding: 40px;">No hay canciones para mostrar</p>';
+                return;
+            }
+            
+            container.innerHTML = videos.map((video, index) => {
+                const statusClass = video.is_downloading ? 'downloading' : 
+                                   video.is_downloaded ? 'downloaded' : 
+                                   video.is_rejected ? 'rejected' : '';
+                
+                const actionButtons = !video.is_rejected && !video.is_downloaded ? 
+                    `<button class="btn btn-success" onclick="downloadSong('${video.id}', '${video.url.replace(/'/g, "\\'")}')" ${video.is_downloading ? 'disabled' : ''}>
+                        ${video.is_downloading ? '⏳ Descargando...' : '📥 Descargar'}
+                     </button>
+                     <button class="btn btn-danger" onclick="rejectSong('${video.id}', '${video.url.replace(/'/g, "\\'")}', '${video.title.replace(/'/g, "\\'")}')">⊘ Ignorar</button>` :
+                    '';
+                
+                return `
+                    <div class="song-item ${statusClass}" id="song-${video.id}">
+                        <div class="thumbnail-container" onclick="toggleVideo('${video.id}', '${video.url}')">
+                            <img src="${video.thumbnail || ''}" alt="${video.title}" onerror="this.style.display='none'">
+                        </div>
+                        <div class="song-info">
+                            <div class="song-title">${index + 1}. ${video.title}</div>
+                            <div class="song-meta">🎤 ${video.artist}</div>
+                            <div class="song-meta">🎵 ${video.genre}</div>
+                        </div>
+                        <div class="song-actions">
+                            ${actionButtons}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function toggleVideo(videoId, videoUrl) {
+            const container = document.querySelector(`#song-${videoId} .thumbnail-container`);
+            
+            if (currentVideoPlayer && currentVideoPlayer !== container) {
+                const currentContainer = currentVideoPlayer;
+                const videoIdMatch = currentContainer.getAttribute('data-video-id');
+                if (videoIdMatch) {
+                    restoreThumbnail(currentContainer, videoIdMatch);
+                }
+            }
+            
+            if (container.querySelector('.video-player')) {
+                restoreThumbnail(container, videoId);
+                currentVideoPlayer = null;
+                return;
+            }
+            
+            const match = videoUrl.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
+            if (!match) return;
+            
+            const embedId = match[1];
+            const embedUrl = `https://www.youtube.com/embed/${embedId}?autoplay=1&rel=0&modestbranding=1&controls=1&playsinline=1`;
+            
+            const img = container.querySelector('img');
+            const imgSrc = img ? img.src : '';
+            
+            container.innerHTML = `<iframe class="video-player" src="${embedUrl}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+            container.setAttribute('data-video-id', videoId);
+            container.setAttribute('data-img-src', imgSrc);
+            
+            currentVideoPlayer = container;
+        }
+        
+        function restoreThumbnail(container, videoId) {
+            const imgSrc = container.getAttribute('data-img-src');
+            container.innerHTML = `
+                <img src="${imgSrc}" alt="Thumbnail" onerror="this.style.display='none'">
+            `;
+            container.removeAttribute('data-video-id');
+            container.removeAttribute('data-img-src');
+        }
+        
+        async function downloadSong(videoId, videoUrl) {
+            log('playlist', `📥 Iniciando descarga: ${videoId}`);
+            
+            const songEl = document.getElementById(`song-${videoId}`);
+            songEl.classList.add('downloading');
+            
+            try {
+                const response = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_id: videoId, url: videoUrl })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    monitorDownload(videoId);
+                } else {
+                    log('playlist', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('playlist', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function rejectSong(videoId, videoUrl, title) {
+            log('playlist', `⊘ Marcando como rechazada: ${title}`);
+            
+            try {
+                const response = await fetch('/api/reject', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_id: videoId, url: videoUrl, title: title })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    loadPlaylist();
+                } else {
+                    log('playlist', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('playlist', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        function monitorDownload(videoId) {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/download/status/${videoId}`);
+                    const data = await response.json();
+                    
+                    if (data.status.status === 'completed') {
+                        clearInterval(interval);
+                        loadPlaylist();
+                    } else if (data.status.status === 'error') {
+                        clearInterval(interval);
+                        log('playlist', `❌ Error: ${data.status.error}`);
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                }
+            }, 2000);
+        }
+        
+        // ========== PESTAÑA: IMPORTAR ==========
+        function browseFolder() {
+            alert('Funcionalidad de selección de carpeta pendiente de implementar');
+        }
+        
+        async function importFolder() {
+            const folder = document.getElementById('import-folder').value.trim();
+            if (!folder) {
+                alert('Por favor, ingresa una ruta de carpeta');
+                return;
+            }
+            
+            clearLog('import');
+            log('import', `📁 Importando carpeta: ${folder}`);
+            
+            try {
+                const response = await fetch('/api/import/folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder: folder })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    log('import', '✅ Importación iniciada');
+                    monitorImport(data.task_id);
+                } else {
+                    log('import', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('import', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        function monitorImport(taskId) {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/import/status/${taskId}`);
+                    const data = await response.json();
+                    
+                    if (data.status === 'completed') {
+                        clearInterval(interval);
+                        log('import', '✅ Importación completada');
+                    } else if (data.status === 'error') {
+                        clearInterval(interval);
+                        log('import', `❌ Error: ${data.error}`);
+                    } else if (data.logs) {
+                        data.logs.forEach(logMsg => {
+                            if (!document.getElementById('import-log').textContent.includes(logMsg)) {
+                                log('import', logMsg);
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                }
+            }, 2000);
+        }
+        
+        // ========== PESTAÑA: TESTING ==========
+        async function testDownload() {
+            const url = document.getElementById('test-url').value.trim();
+            if (!url) {
+                alert('Por favor, ingresa una URL');
+                return;
+            }
+            
+            clearLog('testing');
+            log('testing', `🧪 Probando descarga: ${url}`);
+            
+            // Implementar pruebas
+            log('testing', 'Funcionalidad de testing pendiente');
+        }
+        
+        async function testGenre() {
+            const url = document.getElementById('test-url').value.trim();
+            if (!url) {
+                alert('Por favor, ingresa una URL');
+                return;
+            }
+            
+            clearLog('testing');
+            log('testing', `🎵 Probando detección de género: ${url}`);
+            
+            try {
+                const response = await fetch('/api/testing/genre', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    log('testing', `✅ Género detectado: ${data.genre}`);
+                } else {
+                    log('testing', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('testing', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        // ========== PESTAÑA: CONFIGURACIÓN ==========
+        async function loadConfig() {
+            clearLog('config');
+            log('config', '🔄 Cargando configuración...');
+            
+            try {
+                const response = await fetch('/api/config');
+                
+                // Verificar si la respuesta es JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    log('config', `❌ Error: El servidor devolvió HTML en lugar de JSON. ¿Está el servidor Flask corriendo?`);
+                    log('config', `Respuesta recibida: ${text.substring(0, 200)}...`);
+                    return;
+                }
+                
+                // Verificar el status code
+                if (!response.ok) {
+                    log('config', `❌ Error HTTP ${response.status}: ${response.statusText}`);
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('config-music-folder').value = data.config.MUSIC_FOLDER || '';
+                    document.getElementById('config-db-path').value = data.config.DB_PATH || '';
+                    document.getElementById('config-lastfm-key').value = data.config.LASTFM_API_KEY || '';
+                    log('config', '✅ Configuración cargada correctamente');
+                } else {
+                    log('config', `❌ Error: ${data.error || 'Error desconocido'}`);
+                }
+            } catch (error) {
+                if (error.message.includes('JSON') || error.message.includes('Unexpected token')) {
+                    log('config', `❌ Error: El servidor no devolvió JSON válido. Verifica que el servidor Flask esté corriendo en http://127.0.0.1:5000`);
+                } else {
+                    log('config', `❌ Error: ${error.message}`);
+                }
+                console.error('Error completo:', error);
+            }
+        }
+        
+        function browseMusicFolder() {
+            alert('Funcionalidad de selección de carpeta pendiente');
+        }
+        
+        function browseDbPath() {
+            alert('Funcionalidad de selección de archivo pendiente');
+        }
+        
+        async function saveConfig() {
+            const config = {
+                MUSIC_FOLDER: document.getElementById('config-music-folder').value,
+                DB_PATH: document.getElementById('config-db-path').value,
+                LASTFM_API_KEY: document.getElementById('config-lastfm-key').value
+            };
+            
+            clearLog('config');
+            log('config', '💾 Guardando configuración...');
+            
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    log('config', '✅ Configuración guardada correctamente');
+                } else {
+                    log('config', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('config', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function resetDatabase() {
+            if (!confirm('¿Estás SEGURO de que quieres borrar toda la base de datos? Esto es irreversible.')) {
+                return;
+            }
+            
+            if (!confirm('¿De verdad? Esta es tu última oportunidad.')) {
+                return;
+            }
+            
+            clearLog('config');
+            log('config', '💣 Reseteando base de datos...');
+            
+            try {
+                const response = await fetch('/api/config/reset-db', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    log('config', '✅ Base de datos reseteada correctamente');
+                } else {
+                    log('config', `❌ Error: ${data.error}`);
+                }
+            } catch (error) {
+                log('config', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        // Cargar playlist al iniciar
+        window.addEventListener('DOMContentLoaded', () => {
+            loadPlaylist();
+        });
+    </script>
+</body>
+</html>

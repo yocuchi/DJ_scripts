@@ -35,6 +35,55 @@ except ImportError:
     ESSENTIA_AVAILABLE = False
     # No mostrar advertencia aquí, se mostrará solo si se intenta usar
 
+# Importar clasificador TF
+try:
+    from genre_classifier_tf import get_best_genre
+    TF_CLASSIFIER_AVAILABLE = True
+except ImportError:
+    TF_CLASSIFIER_AVAILABLE = False
+
+
+
+def test_essentia_installation():
+    """
+    Prueba rápida para verificar si Essentia está instalado y funciona.
+    
+    Returns:
+        Tuple[bool, str]: (éxito, mensaje)
+    """
+    if not ESSENTIA_AVAILABLE:
+        return False, "Essentia no está instalado. Instala con: pip install essentia"
+    
+    try:
+        # Probar funciones básicas
+        loader = es.MonoLoader
+        rhythm_extractor = es.RhythmExtractor2013
+        key_extractor = es.KeyExtractor
+        
+        # SpectralCentroid puede no estar disponible en todas las versiones (opcional)
+        try:
+            spectral_centroid = es.SpectralCentroid
+        except AttributeError:
+            pass  # Es opcional, no crítico
+        
+        # Verificar si TaggerMusicNN está disponible
+        tagger_available = False
+        try:
+            tagger = es.TaggerMusicNN
+            tagger_available = True
+        except AttributeError:
+            pass
+        
+        msg = "✅ Essentia está instalado y funcionando correctamente"
+        if tagger_available:
+            msg += " (incluye modelos preentrenados)"
+        else:
+            msg += " (modelos preentrenados no disponibles, pero análisis básico funcionará)"
+        
+        return True, msg
+    except Exception as e:
+        return False, f"Essentia está instalado pero hay un error: {e}"
+
 # Cargar variables de entorno
 load_dotenv()
 
@@ -585,7 +634,7 @@ def get_genre_from_spotify_search(artist: Optional[str], track: str) -> Optional
 def get_genre_from_essentia(file_path: str) -> Optional[str]:
     """
     Detecta el género musical analizando el archivo de audio con Essentia.
-    Usa modelos preentrenados de Essentia (MusicNN) para clasificación de género.
+    Usa modelos TensorFlow preentrenados (Discogs-EffNet) si están disponibles.
     
     Args:
         file_path: Ruta al archivo de audio (MP3, WAV, etc.)
@@ -599,7 +648,19 @@ def get_genre_from_essentia(file_path: str) -> Optional[str]:
     if not Path(file_path).exists():
         return None
     
+    # 1. Intentar usar el clasificador TensorFlow (más preciso)
+    if TF_CLASSIFIER_AVAILABLE:
+        try:
+            print("   ⏳ Analizando audio con Essentia (TensorFlow/Discogs)...")
+            genre = get_best_genre(file_path)
+            if genre:
+                return genre
+        except Exception as e:
+            print(f"   ⚠️ Error en clasificador TF: {e}")
+
     try:
+        # Fallback: Implementación original con TaggerMusicNN (si TF falla o no da resultado)
+        print("   ⏳ Analizando audio con Essentia (Legacy MusicNN)...")
         # Cargar el archivo de audio
         loader = es.MonoLoader(filename=file_path)
         audio = loader()
@@ -731,17 +792,19 @@ def get_genre_from_essentia(file_path: str) -> Optional[str]:
             key_extractor = es.KeyExtractor()
             key, scale, strength = key_extractor(audio)
             
-            # Extraer características espectrales
-            spectral_centroid = es.SpectralCentroid()
-            centroid = spectral_centroid(audio)
+            # Extraer características espectrales (opcional, puede no estar disponible)
+            avg_centroid = 0
+            try:
+                spectral_centroid = es.SpectralCentroid()
+                centroid = spectral_centroid(audio)
+                avg_centroid = float(sum(centroid) / len(centroid)) if len(centroid) > 0 else 0
+            except (AttributeError, Exception):
+                # SpectralCentroid no está disponible, usar valor por defecto
+                pass
             
             # Extraer energía
             energy = es.Energy()
             energy_value = energy(audio)
-            
-            # Clasificación heurística basada en características
-            # Estos valores son aproximados y pueden necesitar ajuste
-            avg_centroid = float(sum(centroid) / len(centroid)) if len(centroid) > 0 else 0
             avg_energy = float(sum(energy_value) / len(energy_value)) if len(energy_value) > 0 else 0
             
             # Reglas heurísticas para géneros electrónicos comunes
@@ -1056,33 +1119,145 @@ def extract_metadata_from_title(title: str, description: str = "", video_info: O
     return metadata
 
 
-def get_video_info(url: str) -> Dict:
-    """Obtiene información del video sin descargarlo."""
+def get_video_info(url: str, log_callback=None) -> Dict:
+    """
+    Obtiene información del video sin descargarlo.
+    
+    Args:
+        url: URL del video de YouTube
+        log_callback: Función opcional para logging (recibe un string). Si es None, usa print()
+    
+    Returns:
+        Diccionario con información del video o {} si hay error
+    """
+    import time
+    
+    def log(msg):
+        timestamp = time.strftime('%H:%M:%S')
+        formatted_msg = f"[{timestamp}] {msg}"
+        if log_callback:
+            log_callback(formatted_msg)
+        else:
+            print(formatted_msg)
+    
+    start_time = time.time()
+    log(f"🔍 Obteniendo información de YouTube...")
+    log(f"   URL: {url}")
+    
     ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
+        'quiet': True,  # Silenciar para evitar spam en consola
+        'no_warnings': True,  # Silenciar warnings para limpieza
         'extract_flat': False,
+        'skip_download': True,  # Asegurar que no se descarga nada
     }
     
     # Añadir cookies si están disponibles
     cookies_file = get_cookies_file()
     if cookies_file:
         ydl_opts['cookiefile'] = cookies_file
+        log(f"   📋 Usando cookies: {cookies_file}")
+    else:
+        log(f"   ⚠️  No se encontraron cookies")
+    
+    log(f"   ⚙️  Opciones yt-dlp: {ydl_opts}")
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
+            log(f"   🔄 Extrayendo información...")
             info = ydl.extract_info(url, download=False)
-            return info
+            elapsed = time.time() - start_time
+            
+            if info:
+                log(f"   ✅ Información obtenida correctamente en {elapsed:.2f}s")
+                log(f"      Video ID: {info.get('id', 'N/A')}")
+                log(f"      Título: {info.get('title', 'N/A')}")
+                log(f"      Duración: {info.get('duration', 'N/A')} segundos")
+            else:
+                log(f"   ⚠️  No se obtuvo información del video después de {elapsed:.2f}s")
+            
+            return info if info else {}
+            
+        except yt_dlp.utils.DownloadError as e:
+            error_str = str(e)
+            
+            # Mostrar más detalles del error
+            if 'Requested format is not available' in error_str:
+                # No mostramos error rojo todavía porque vamos a intentar recuperar
+                # log(f"   ❌ Error de descarga: {error_str}") 
+                
+                log(f"   ℹ️  Formato preferido no disponible, intentando métodos alternativos...")
+                # log(f"   📋 Detalles del error:")
+                # log(f"      - El formato solicitado no está disponible para este video")
+                log(f"      - URL intentada: {url}")
+                log(f"      - Esto puede ocurrir si el video está restringido o eliminado")
+                log(f"      - Intentando obtener información básica sin formato específico...")
+                
+                # Intentar con opciones más permisivas
+                try:
+                    ydl_opts_retry = {
+                        'js_runtimes': {'node': {}, 'nodejs': {}},
+                        'quiet': True,     # Silenciar salida para no alarmar al usuario con errores internos de yt-dlp
+                        'no_warnings': True,
+                        'extract_flat': True,  # Modo plano, menos información pero más compatible
+                        'skip_download': True,
+                        'ignoreerrors': True,  # Ignorar errores de formato/descarga para obtener lo que se pueda
+                    }
+                    if cookies_file:
+                        ydl_opts_retry['cookiefile'] = cookies_file
+                    
+                    log(f"   🔄 Reintentando con extract_flat=True y ignoreerrors=True...")
+                    with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl_retry:
+                        info = ydl_retry.extract_info(url, download=False)
+                        if info:
+                            log(f"   ✅ Información básica obtenida (modo plano)")
+                            return info
+                except Exception as e2:
+                    log(f"   ❌ Error en primer reintento: {e2}")
+
+                # Segundo reintento: SIN COOKIES (a veces las cookies causan problemas de restricción o sesión)
+                try:
+                    ydl_opts_retry_2 = {
+                        'js_runtimes': {'node': {}, 'nodejs': {}},
+                        'quiet': True,
+                        'no_warnings': True,
+                        'extract_flat': True,
+                        'skip_download': True,
+                        'ignoreerrors': True,
+                    }
+                    log(f"   🔄 Reintentando SIN cookies...")
+                    with yt_dlp.YoutubeDL(ydl_opts_retry_2) as ydl_retry_2:
+                        info = ydl_retry_2.extract_info(url, download=False)
+                        if info:
+                            log(f"   ✅ Información básica obtenida (sin cookies)")
+                            return info
+                except Exception as e3:
+                    log(f"   ❌ Error en segundo reintento: {e3}")
+            
+            elif 'Video unavailable' in error_str or 'not available' in error_str:
+                log(f"   ⚠️  Video no disponible: {url}")
+                log(f"   Posibles causas:")
+                log(f"   - El video fue eliminado o es privado")
+                log(f"   - El video requiere autenticación (verifica tus cookies)")
+                log(f"   - El video está bloqueado geográficamente")
+            else:
+                log(f"   📋 Error completo: {error_str}")
+                import traceback
+                log(f"   📋 Traceback:")
+                for line in traceback.format_exc().split('\n'):
+                    if line.strip():
+                        log(f"      {line}")
+            
+            return {}
+            
         except Exception as e:
             error_str = str(e)
-            if 'Video unavailable' in error_str or 'not available' in error_str:
-                print(f"⚠️  Video no disponible: {url}")
-                print("   Posibles causas:")
-                print("   - El video fue eliminado o es privado")
-                print("   - El video requiere autenticación (verifica tus cookies)")
-                print("   - El video está bloqueado geográficamente")
-            else:
-                print(f"Error al obtener información del video: {e}")
+            log(f"   ❌ Error inesperado: {error_str}")
+            log(f"   📋 Tipo de error: {type(e).__name__}")
+            import traceback
+            log(f"   📋 Traceback completo:")
+            for line in traceback.format_exc().split('\n'):
+                if line.strip():
+                    log(f"      {line}")
             return {}
 
 
@@ -1176,41 +1351,98 @@ def check_file_exists(video_id: Optional[str] = None, artist: Optional[str] = No
 def download_audio(url: str, output_path: str, metadata: Dict) -> bool:
     """
     Descarga el audio de YouTube y lo convierte a MP3.
+    Intenta múltiples formatos en cascada si el formato preferido falla.
     """
-    ydl_opts = {
-        'format': QUALITY,
+    # Añadir cookies si están disponibles
+    cookies_file = get_cookies_file()
+    
+    # Lista de formatos a intentar en orden de preferencia
+    format_attempts = [
+        'best',  # Cualquier formato disponible
+        QUALITY,  # Formato preferido original
+        'bestaudio/best',  # Mejor audio disponible
+        'best[height<=720]/best',  # Video hasta 720p o mejor disponible
+        'worst[ext=mp4]/worst',  # Cualquier formato mp4 disponible
+    ]
+    
+    base_opts = {
         'outtmpl': output_path,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '320',  # Mejor calidad MP3
         }],
-        'quiet': False,
+        'quiet': True,  # Silenciar para evitar warnings innecesarios
+        'no_warnings': False,  # Permitir warnings importantes pero silenciar spam
         'progress_hooks': [],
     }
     
-    # Añadir cookies si están disponibles
-    cookies_file = get_cookies_file()
+    # Intentar primero con cookies (si están disponibles), luego sin cookies
+    cookie_attempts = [cookies_file] if cookies_file else [None]
+    # Si las cookies fallan, intentar sin ellas
     if cookies_file:
-        ydl_opts['cookiefile'] = cookies_file
+        cookie_attempts.append(None)
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        return True
-    except Exception as e:
-        error_str = str(e)
-        if 'Video unavailable' in error_str or 'not available' in error_str:
-            print(f"❌ Error: Video no disponible: {url}")
-            print("   Posibles causas:")
-            print("   - El video fue eliminado o es privado")
-            print("   - El video requiere autenticación (verifica tus cookies)")
-            print("   - El video está bloqueado geográficamente")
-            if not cookies_file:
-                print("   - No se encontraron cookies (algunos videos requieren autenticación)")
-        else:
-            print(f"Error al descargar: {e}")
-        return False
+    # Intentar con cada formato hasta que uno funcione
+    last_error = None
+    format_failed = False
+    
+    for cookie_file in cookie_attempts:
+        if format_failed and cookie_file:
+            # Si todos los formatos fallaron con cookies, intentar sin cookies
+            print(f"⚠️  Todos los formatos fallaron con cookies, intentando sin cookies...")
+        
+        for i, fmt in enumerate(format_attempts):
+            try:
+                ydl_opts = base_opts.copy()
+                ydl_opts['format'] = fmt
+                
+                if cookie_file:
+                    ydl_opts['cookiefile'] = cookie_file
+                
+                if i > 0:
+                    print(f"⚠️  Intentando con formato alternativo ({i}/{len(format_attempts)-1}): {fmt}")
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+                return True
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+                
+                # Si es un error de formato, continuar con el siguiente formato
+                if 'Requested format is not available' in error_str or 'Only images are available' in error_str:
+                    continue  # Intentar siguiente formato
+                # Si es un error de video no disponible, puede ser por cookies, intentar sin cookies
+                elif 'Video unavailable' in error_str or 'Private video' in error_str:
+                    if cookie_file and len(cookie_attempts) > 1:
+                        # Si estamos usando cookies y hay más intentos, marcar para intentar sin cookies
+                        format_failed = True
+                        break  # Salir del bucle de formatos para intentar sin cookies
+                    else:
+                        # Ya intentamos sin cookies o no hay más opciones
+                        break  # Error definitivo
+                # Otros errores, continuar con siguiente formato
+                else:
+                    continue
+    
+    # Si llegamos aquí, todos los formatos fallaron
+    error_str = str(last_error) if last_error else "Error desconocido"
+    
+    if 'Video unavailable' in error_str or 'not available' in error_str or 'Private video' in error_str:
+        print(f"❌ Error: Video no disponible: {url}")
+        print("   Posibles causas:")
+        print("   - El video fue eliminado o es privado")
+        print("   - El video requiere autenticación (verifica tus cookies)")
+        print("   - El video está bloqueado geográficamente")
+        if not cookies_file:
+            print("   - No se encontraron cookies (algunos videos requieren autenticación)")
+    else:
+        print(f"❌ Error al descargar después de intentar {len(format_attempts)} formatos: {last_error}")
+        print(f"   URL: {url}")
+        print("   💡 Sugerencia: Verifica que el video esté disponible y accesible")
+    
+    return False
 
 
 def check_audio_volume(file_path: str) -> Optional[float]:
@@ -1745,13 +1977,14 @@ def list_user_playlists():
         print("   4. Si conoces el ID de tu playlist de 'me gusta', puedes usarlo directamente")
 
 
-def get_liked_videos_from_url(playlist_url: str, limit: int = 20) -> list:
+def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: int = 1) -> list:
     """
     Obtiene videos de una playlist específica usando su URL.
     
     Args:
         playlist_url: URL de la playlist
         limit: Número máximo de videos a obtener
+        start_index: Índice inicial (1-based) para obtener videos desde una posición específica
     """
     cookies_file = get_cookies_file()
     
@@ -1759,27 +1992,120 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 20) -> list:
         print("⚠️  No se encontró archivo de cookies.")
         return []
     
+    # Calcular el rango de elementos a obtener
+    # start_index es 1-based, así que si queremos 10 canciones desde el índice 1, obtenemos 1-10
+    end_index = start_index + limit - 1
+    playlist_items = f"{start_index}-{end_index}" if limit > 0 else None
+    
+    # Usar extract_flat para obtener solo información básica sin problemas de formato
+    # y ignoreerrors para continuar aunque algunos videos fallen
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'extract_flat': 'in_playlist',
-        'playlistend': limit,
+        'playlistend': end_index,  # Limitar hasta el final del rango
         'cookiefile': cookies_file,
+        'ignoreerrors': True,  # Continuar aunque algunos videos fallen
     }
+    
+    # Agregar playlist_items si se especificó un límite
+    if playlist_items:
+        ydl_opts['playlist_items'] = playlist_items
+    
+    import time
+    start_time = time.time()
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"🔍 Obteniendo videos de: {playlist_url}")
+            print(f"[{time.strftime('%H:%M:%S')}] 🔍 Obteniendo videos de: {playlist_url} (límite: {limit}, desde índice: {start_index})")
+            print(f"[{time.strftime('%H:%M:%S')}]    Llamando a ydl.extract_info...")
             info = ydl.extract_info(playlist_url, download=False)
+            elapsed = time.time() - start_time
+            print(f"[{time.strftime('%H:%M:%S')}]    ✅ extract_info completado en {elapsed:.2f}s")
             
-            if not info or not info.get('entries'):
-                print(f"❌ No se pudieron obtener videos de la playlist")
+            if not info:
+                print(f"[{time.strftime('%H:%M:%S')}] ❌ No se pudieron obtener videos de la playlist")
                 return []
             
+            print(f"[{time.strftime('%H:%M:%S')}]    Procesando entries...")
             entries = info.get('entries', [])
+            
+            # Si entries es None, convertir a lista vacía
+            if entries is None:
+                entries = []
+            
+            # Si entries es un generador, convertirlo a lista
+            try:
+                if hasattr(entries, '__iter__') and not isinstance(entries, (list, tuple, str)):
+                    print(f"[{time.strftime('%H:%M:%S')}]    Convirtiendo generador a lista...")
+                    entries = list(entries)
+                    print(f"[{time.strftime('%H:%M:%S')}]    ✅ Conversión completada: {len(entries)} entradas")
+            except Exception as e:
+                print(f"[{time.strftime('%H:%M:%S')}] ⚠️  Error al convertir entries a lista: {e}")
+                entries = []
+            
+            # Filtrar entradas None (videos que fallaron debido a ignoreerrors)
+            total_entries = len(entries)
+            print(f"[{time.strftime('%H:%M:%S')}]    Filtrando entradas None...")
+            entries = [e for e in entries if e is not None]
+            filtered_count = total_entries - len(entries)
+            if filtered_count > 0:
+                print(f"[{time.strftime('%H:%M:%S')}] ⚠️  Se omitieron {filtered_count} video(s) que no pudieron procesarse")
+            
+            # Si no obtuvimos suficientes entradas, intentar sin extract_flat como fallback
+            # (aunque esto puede ser más lento y tener problemas con algunos videos)
+            if len(entries) < limit:
+                print(f"⚠️  Solo se obtuvieron {len(entries)} entradas de {limit} solicitadas. Intentando sin extract_flat...")
+                ydl_opts_full = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'playlistend': end_index,
+                    'cookiefile': cookies_file,
+                    'ignoreerrors': True,  # Continuar aunque algunos videos fallen
+                }
+                if playlist_items:
+                    ydl_opts_full['playlist_items'] = playlist_items
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts_full) as ydl_full:
+                        info_full = ydl_full.extract_info(playlist_url, download=False)
+                        if info_full:
+                            entries_full = info_full.get('entries', [])
+                            if entries_full is None:
+                                entries_full = []
+                            # Convertir generador a lista si es necesario
+                            if hasattr(entries_full, '__iter__') and not isinstance(entries_full, (list, tuple, str)):
+                                entries_full = list(entries_full)
+                            # Filtrar entradas None (videos que fallaron)
+                            entries_full = [e for e in entries_full if e is not None]
+                            # Usar el método sin extract_flat si obtuvo más resultados
+                            if len(entries_full) > len(entries):
+                                print(f"✓ Método sin extract_flat obtuvo {len(entries_full)} entradas")
+                                entries = entries_full
+                except Exception as e:
+                    print(f"⚠️  Error en método sin extract_flat: {e}")
+            
+            if not entries:
+                print(f"[{time.strftime('%H:%M:%S')}] ❌ No se pudieron obtener videos de la playlist")
+                return []
+            
+            print(f"[{time.strftime('%H:%M:%S')}] ✓ Se encontraron {len(entries)} entradas en la playlist")
+            
             videos = []
             
-            for entry in entries[:limit]:
+            # Procesar las entradas del rango solicitado
+            # Si start_index > 1, necesitamos tomar solo las entradas desde ese índice
+            # playlist_items debería devolver solo las entradas del rango, pero por seguridad
+            # tomamos solo las que necesitamos
+            print(f"[{time.strftime('%H:%M:%S')}]    Procesando entradas para crear lista de videos...")
+            
+            # Si start_index > 1, las entradas devueltas deberían empezar desde start_index
+            # pero por seguridad, tomamos solo las primeras 'limit' entradas
+            entries_to_process = entries[:limit]
+            
+            for idx, entry in enumerate(entries_to_process, 1):
+                if len(videos) >= limit:
+                    break
+                    
                 if entry:
                     video_id = entry.get('id', '')
                     if not video_id:
@@ -1794,13 +2120,18 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 20) -> list:
                         'url': url
                     })
             
+            total_elapsed = time.time() - start_time
+            print(f"[{time.strftime('%H:%M:%S')}] ✓ Se procesaron {len(videos)} videos (solicitados: {limit}, desde índice {start_index}) en {total_elapsed:.2f}s")
             return videos
     except Exception as e:
-        print(f"❌ Error al obtener videos: {e}")
+        elapsed = time.time() - start_time
+        print(f"[{time.strftime('%H:%M:%S')}] ❌ Error al obtener videos después de {elapsed:.2f}s: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
-def get_liked_videos(limit: int = 20) -> list:
+def get_liked_videos(limit: int = 10) -> list:
     """
     Obtiene las últimas canciones de la lista de 'me gusta' de YouTube.
     
@@ -2145,6 +2476,33 @@ def monitor_liked_videos(playlist_url: Optional[str] = None):
     print("\n✅ Monitoreo completado.")
 
 
+def get_mp3_bitrate(file_path: Path) -> Optional[int]:
+    """
+    Extrae el bitrate de un archivo MP3 en kbps.
+    
+    Args:
+        file_path: Ruta al archivo MP3
+        
+    Returns:
+        Bitrate en kbps o None si no se puede obtener
+    """
+    try:
+        if not file_path.exists():
+            return None
+        
+        audio = MP3(str(file_path))
+        # audio.info.bitrate está en bps (bits por segundo), convertir a kbps
+        bitrate_bps = audio.info.bitrate
+        if bitrate_bps:
+            bitrate_kbps = bitrate_bps // 1000  # Convertir a kbps
+            return bitrate_kbps
+    except Exception as e:
+        # Si hay error al leer el archivo, devolver None
+        pass
+    
+    return None
+
+
 def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict, video_info: Dict, download_source: Optional[str] = None):
     """
     Registra una canción descargada en la base de datos.
@@ -2182,6 +2540,9 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
     # Obtener década
     decade = get_decade_from_year(metadata.get('year'))
     
+    # Obtener bitrate del archivo MP3
+    bitrate_kbps = get_mp3_bitrate(file_path)
+    
     # Registrar en BD
     success = db.add_song(
         video_id=video_id,
@@ -2197,7 +2558,8 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
         duration=duration,
         thumbnail_url=thumbnail_url,
         description=description,
-        download_source=download_source
+        download_source=download_source,
+        bitrate_kbps=bitrate_kbps
     )
     
     if not success:
@@ -2225,7 +2587,20 @@ def add_id3_tags(file_path: str, metadata: Dict, video_info: Dict):
         audio['TDRC'] = TDRC(encoding=3, text=metadata['year'])
     
     if metadata.get('genre'):
-        audio['TCON'] = TCON(encoding=3, text=metadata['genre'])
+        # Eliminar el tag TCON existente si existe (para evitar conflictos)
+        if 'TCON' in audio:
+            del audio['TCON']
+        
+        # Limpiar el género de cualquier formato previo (puede venir con paréntesis y números)
+        genre_text = str(metadata['genre']).strip()
+        # Si el género viene con formato estándar como "(17)House", extraer solo el texto
+        if genre_text.startswith('(') and ')' in genre_text:
+            genre_text = genre_text.split(')', 1)[1].strip()
+        # Limpiar caracteres nulos o problemáticos
+        genre_text = genre_text.replace('\x00', '').strip()
+        # Escribir el género correctamente (UTF-8 encoding)
+        if genre_text:  # Solo escribir si el género no está vacío después de limpiar
+            audio['TCON'] = TCON(encoding=3, text=genre_text)
     
     # Añadir álbum si está disponible
     if video_info.get('uploader'):
@@ -2285,7 +2660,11 @@ def read_id3_tags(file_path: str) -> Dict[str, Optional[str]]:
         
         # Leer género (TCON)
         if 'TCON' in audio:
-            metadata['genre'] = str(audio['TCON'][0])
+            genre_text = str(audio['TCON'][0])
+            # Limpiar el género si viene con formato estándar como "(17)House"
+            if genre_text.startswith('(') and ')' in genre_text:
+                genre_text = genre_text.split(')', 1)[1].strip()
+            metadata['genre'] = genre_text.strip()
     
     except Exception:
         # Si no hay tags ID3 o hay error, devolver diccionario vacío
@@ -2347,7 +2726,8 @@ def search_youtube_music_url(artist: str, title: str) -> Optional[str]:
 
 def process_imported_mp3(file_path: Path, base_folder: str, 
                          existing_metadata: Optional[Dict] = None,
-                         video_info: Optional[Dict] = None) -> Optional[bool]:
+                         video_info: Optional[Dict] = None,
+                         log_callback=None) -> Optional[bool]:
     """
     Procesa un archivo MP3 importado: lo copia a la carpeta correcta,
     actualiza metadatos si es necesario y lo registra en la base de datos.
@@ -2357,6 +2737,7 @@ def process_imported_mp3(file_path: Path, base_folder: str,
         base_folder: Carpeta base de música
         existing_metadata: Metadatos existentes del archivo (si ya tiene ID3 tags)
         video_info: Información del video de YouTube (si se obtuvo)
+        log_callback: Función para logging
     
     Returns:
         True si se procesó correctamente, None si el archivo ya existe, False en caso de error
@@ -2426,7 +2807,7 @@ def process_imported_mp3(file_path: Path, base_folder: str,
         # Esto es especialmente útil cuando no hay artista
         if (not metadata.get('genre') or 
             metadata.get('genre', '').lower() in ['sin clasificar', 'unknown', 'desconocido', '']):
-            detected_genre = detect_genre_from_audio_file(str(file_path))
+            detected_genre = detect_genre_from_audio_file(str(file_path), log_callback=log_callback)
             if detected_genre:
                 metadata['genre'] = detected_genre
         
@@ -2447,7 +2828,7 @@ def process_imported_mp3(file_path: Path, base_folder: str,
             # Si aún no se detectó género o es genérico, intentar con Essentia una vez más
             if (not metadata.get('genre') or 
                 metadata.get('genre', '').lower() in ['sin clasificar', 'unknown', 'desconocido', '']):
-                detected_genre = detect_genre_from_audio_file(str(file_path))
+                detected_genre = detect_genre_from_audio_file(str(file_path), log_callback=log_callback)
                 if detected_genre:
                     metadata['genre'] = detected_genre
                     # Si cambió el género, actualizar la carpeta de destino
@@ -2477,7 +2858,7 @@ def process_imported_mp3(file_path: Path, base_folder: str,
                 # Intentar usar Essentia si el género es genérico
                 if (not metadata.get('genre') or 
                     metadata.get('genre', '').lower() in ['sin clasificar', 'unknown', 'desconocido', '']):
-                    detected_genre = detect_genre_from_audio_file(str(new_file_path))
+                    detected_genre = detect_genre_from_audio_file(str(new_file_path), log_callback=log_callback)
                     if detected_genre:
                         metadata['genre'] = detected_genre
                         # Actualizar metadatos del archivo existente
@@ -2497,7 +2878,7 @@ def process_imported_mp3(file_path: Path, base_folder: str,
             # Si no se detectó género o es genérico, intentar con Essentia
             if (not metadata.get('genre') or 
                 metadata.get('genre', '').lower() in ['sin clasificar', 'unknown', 'desconocido', '']):
-                detected_genre = detect_genre_from_audio_file(str(new_file_path))
+                detected_genre = detect_genre_from_audio_file(str(new_file_path), log_callback=log_callback)
                 if detected_genre:
                     metadata['genre'] = detected_genre
                     # Si cambió el género, actualizar la carpeta de destino
@@ -2582,6 +2963,24 @@ def main():
         test_cookies()
         return
     
+    # Verificar si se quiere probar Essentia
+    if len(sys.argv) >= 2 and sys.argv[1] == '--test-essentia':
+        success, message = test_essentia_installation()
+        print(message)
+        if len(sys.argv) >= 3:
+            # Probar con un archivo de audio
+            audio_file = sys.argv[2]
+            if Path(audio_file).exists():
+                print(f"\n🎵 Probando análisis de audio: {audio_file}")
+                detected_genre = detect_genre_from_audio_file(audio_file)
+                if detected_genre:
+                    print(f"✅ Género detectado: {detected_genre}")
+                else:
+                    print("⚠️  No se pudo detectar el género")
+            else:
+                print(f"❌ Archivo no encontrado: {audio_file}")
+        sys.exit(0 if success else 1)
+    
     # Verificar si se quiere listar playlists
     if len(sys.argv) >= 2 and sys.argv[1] == '--list-playlists':
         list_user_playlists()
@@ -2604,6 +3003,7 @@ def main():
         print("   o: python download_youtube.py --monitor-liked [--playlist-url URL]")
         print("   o: python download_youtube.py --list-playlists")
         print("   o: python download_youtube.py --test-cookies")
+        print("   o: python download_youtube.py --test-essentia [archivo.mp3]")
         print("\nEjemplo:")
         print("  python download_youtube.py https://www.youtube.com/watch?v=VIDEO_ID")
         print("  python download_youtube.py https://www.youtube.com/watch?v=VIDEO_ID --genre House --artist 'Artista' --year 2023")
@@ -2611,6 +3011,8 @@ def main():
         print("  python download_youtube.py --monitor-liked --playlist-url 'https://music.youtube.com/playlist?list=LM'")
         print("  python download_youtube.py --list-playlists  # Lista tus playlists de YouTube")
         print("  python download_youtube.py --test-cookies  # Prueba si las cookies funcionan")
+        print("  python download_youtube.py --test-essentia  # Prueba si Essentia está instalado")
+        print("  python download_youtube.py --test-essentia archivo.mp3  # Prueba Essentia con un archivo")
         sys.exit(1)
     
     url = sys.argv[1]

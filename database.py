@@ -89,6 +89,12 @@ class MusicDatabase:
             # La columna ya existe, no hacer nada
             pass
         
+        try:
+            cursor.execute('ALTER TABLE songs ADD COLUMN bitrate_kbps INTEGER')
+        except sqlite3.OperationalError:
+            # La columna ya existe, no hacer nada
+            pass
+        
         # Índices para búsquedas rápidas
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_video_id ON songs(video_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_artist ON songs(artist)')
@@ -147,7 +153,7 @@ class MusicDatabase:
                  file_size: Optional[int] = None, file_type: Optional[str] = None,
                  duration: Optional[float] = None,
                  thumbnail_url: Optional[str] = None, description: Optional[str] = None,
-                 download_source: Optional[str] = None) -> bool:
+                 download_source: Optional[str] = None, bitrate_kbps: Optional[int] = None) -> bool:
         """
         Añade una canción a la base de datos.
         
@@ -162,10 +168,10 @@ class MusicDatabase:
                 cursor.execute('''
                     INSERT INTO songs (
                         video_id, url, title, artist, year, genre, decade,
-                        file_path, file_size, file_type, duration, thumbnail_url, description, download_source
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        file_path, file_size, file_type, duration, thumbnail_url, description, download_source, bitrate_kbps
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (video_id, url, title, artist, year, genre, decade,
-                      str(file_path), file_size, file_type, duration, thumbnail_url, description, download_source))
+                      str(file_path), file_size, file_type, duration, thumbnail_url, description, download_source, bitrate_kbps))
                 
                 # Registrar en historial
                 cursor.execute('''
@@ -197,7 +203,7 @@ class MusicDatabase:
             
             # Construir query de actualización
             allowed_fields = ['title', 'artist', 'year', 'genre', 'decade', 'file_path',
-                             'file_size', 'file_type', 'duration', 'thumbnail_url', 'description', 'download_source']
+                             'file_size', 'file_type', 'duration', 'thumbnail_url', 'description', 'download_source', 'bitrate_kbps']
             
             updates = []
             values = []

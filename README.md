@@ -245,8 +245,6 @@ LASTFM_API_KEY=tu_api_key_aqui
 
 La forma más cómoda de usar el programa es mediante la interfaz gráfica:
 
-![Interfaz Gráfica - Gestor de Música para DJ](screenshot.png)
-
 **Windows (PowerShell/CMD):**
 ```powershell
 python ide.py

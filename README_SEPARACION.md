@@ -110,3 +110,4 @@ Para una separación completa, considera:
 2. Implementar un sistema de mensajes/cola para comunicación asíncrona
 3. Crear una API REST local para comunicación más estructurada
 
+
