@@ -39,6 +39,10 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      # youtube_cookies.txt está en .gitignore; PyInstaller lo requiere en build_app.spec
+      - name: Crear youtube_cookies.txt si no existe
+        run: python -c "from pathlib import Path; Path('youtube_cookies.txt').touch()"
+
       - name: Compilar con PyInstaller (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: pyinstaller --clean --noconfirm build_app.spec

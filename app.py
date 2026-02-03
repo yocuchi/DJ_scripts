@@ -28,8 +28,17 @@ except ImportError:
     print("❌ Flask no está instalado. Instala con: pip install flask flask-cors")
     exit(1)
 
-# Importar módulos del proyecto
-from database import MusicDatabase
+# Cargar variables de entorno antes de resolver la ruta de la BD
+load_dotenv()
+
+# Resolver ruta de la base de datos (si falla la por defecto, preguntar al usuario)
+from database import MusicDatabase, get_or_choose_db_path
+_db_path = get_or_choose_db_path()
+if _db_path is None:
+    print("❌ No se pudo abrir o crear la base de datos. Se canceló la elección de ubicación.")
+    sys.exit(1)
+
+# Importar módulos del proyecto (download_youtube usa DB_PATH del entorno)
 from download_youtube import (
     download_audio, get_video_info, extract_metadata_from_title,
     detect_genre_online, get_output_folder, check_file_exists,
@@ -49,10 +58,7 @@ try:
 except ImportError:
     TF_CLASSIFIER_AVAILABLE = False
 
-# Cargar variables de entorno
-load_dotenv()
-
-# Inicializar base de datos
+# Inicializar base de datos (ruta ya resuelta en get_or_choose_db_path)
 DB_PATH = os.getenv('DB_PATH', None)
 db = MusicDatabase(DB_PATH)
 MUSIC_FOLDER = os.getenv('MUSIC_FOLDER', os.path.expanduser('~/Music'))

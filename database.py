@@ -13,6 +13,94 @@ from typing import Optional, Dict, List, Tuple
 from datetime import datetime
 
 
+def get_default_db_path() -> Path:
+    """
+    Devuelve la ruta por defecto del archivo de base de datos.
+    En ejecutable empaquetado: junto al .exe. En desarrollo: en el home del usuario.
+    """
+    if getattr(sys, 'frozen', False):
+        base_dir = Path(sys.executable).parent.resolve()
+        return base_dir / 'youtube_music.db'
+    return Path.home() / '.youtube_music.db'
+
+
+def _ask_user_for_db_folder(suggested_path: Path) -> Optional[Path]:
+    """
+    Muestra un diálogo para que el usuario elija la carpeta donde crear la base de datos.
+    suggested_path: ruta por defecto (se usará su directorio padre como sugerencia).
+    Devuelve la ruta completa (carpeta/youtube_music.db) o None si cancela.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import filedialog, messagebox
+    except ImportError:
+        return None
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    initial_dir = suggested_path.parent if suggested_path else Path.home()
+    if not initial_dir.exists():
+        initial_dir = Path.home()
+    messagebox.showinfo(
+        "Ubicación de la base de datos",
+        "No se pudo crear la base de datos en la ubicación por defecto.\n\n"
+        "Elija una carpeta donde guardarla (por ejemplo, Documentos o la carpeta del programa).\n\n"
+        f"Ubicación por defecto sugerida:\n{suggested_path}"
+    )
+    folder = filedialog.askdirectory(
+        title="Seleccione la carpeta para la base de datos",
+        initialdir=str(initial_dir)
+    )
+    root.destroy()
+    if folder:
+        return Path(folder) / 'youtube_music.db'
+    return None
+
+
+def get_or_choose_db_path() -> Optional[str]:
+    """
+    Obtiene una ruta de base de datos válida: usa DB_PATH del entorno, o la ruta por defecto.
+    Si no se puede crear/abrir el archivo (p. ej. permisos en OneDrive), muestra un diálogo
+    para que el usuario elija la carpeta y sugiere la ubicación por defecto.
+    Establece os.environ['DB_PATH'] con la ruta elegida y la devuelve.
+    Devuelve None si el usuario cancela el diálogo.
+    """
+    path_str = os.environ.get('DB_PATH', '').strip()
+    if path_str:
+        path = Path(path_str)
+    else:
+        path = get_default_db_path()
+    path = path.resolve()
+    # Asegurar que el directorio padre exista (sqlite no crea directorios)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    try:
+        conn = sqlite3.connect(str(path))
+        conn.close()
+        os.environ['DB_PATH'] = str(path)
+        return str(path)
+    except sqlite3.OperationalError as e:
+        if 'unable to open database file' not in str(e).lower():
+            raise
+    chosen = _ask_user_for_db_folder(path)
+    if not chosen:
+        return None
+    try:
+        chosen.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    try:
+        conn = sqlite3.connect(str(chosen))
+        conn.close()
+        os.environ['DB_PATH'] = str(chosen)
+        return str(chosen)
+    except sqlite3.OperationalError:
+        return None
+    return None
+
+
 class MusicDatabase:
     """Clase para gestionar la base de datos de música."""
     
