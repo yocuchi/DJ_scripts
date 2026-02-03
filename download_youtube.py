@@ -21,6 +21,11 @@ from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, TCON, APIC
 from dotenv import load_dotenv
 from database import MusicDatabase
 
+# Configurar TensorFlow para reducir verbosidad de logs
+# Solo mostrar errores críticos, una línea por ejecución
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=info, 2=warnings, 3=errors only
+os.environ['TF_CPP_MIN_VLOG_LEVEL'] = '3'  # Desactivar logs verbosos
+
 try:
     import requests
     REQUESTS_AVAILABLE = True
@@ -1144,38 +1149,66 @@ def get_video_info(url: str, log_callback=None) -> Dict:
     log(f"🔍 Obteniendo información de YouTube...")
     log(f"   URL: {url}")
     
+    # Añadir cookies si están disponibles
+    cookies_file = get_cookies_file()
+    
+    # Opciones más permisivas desde el inicio para evitar errores de formato
+    # No especificamos formato porque solo necesitamos información, no descargar
     ydl_opts = {
         'quiet': True,  # Silenciar para evitar spam en consola
         'no_warnings': True,  # Silenciar warnings para limpieza
         'extract_flat': False,
         'skip_download': True,  # Asegurar que no se descarga nada
+        'ignoreerrors': True,  # Ignorar errores de formato para obtener lo que se pueda
+        'no_check_certificate': False,
     }
     
-    # Añadir cookies si están disponibles
-    cookies_file = get_cookies_file()
     if cookies_file:
         ydl_opts['cookiefile'] = cookies_file
         log(f"   📋 Usando cookies: {cookies_file}")
     else:
         log(f"   ⚠️  No se encontraron cookies")
     
-    log(f"   ⚙️  Opciones yt-dlp: {ydl_opts}")
+    # Función auxiliar para suprimir stderr durante la extracción
+    def extract_with_suppressed_stderr(ydl_instance, url):
+        """Extrae información suprimiendo stderr para evitar mensajes de error directos."""
+        import sys
+        import io
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        
+        try:
+            info = ydl_instance.extract_info(url, download=False)
+            return info, None
+        except Exception as e:
+            return None, e
+        finally:
+            # Restaurar stderr
+            stderr_output = sys.stderr.getvalue()
+            sys.stderr = old_stderr
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             log(f"   🔄 Extrayendo información...")
-            info = ydl.extract_info(url, download=False)
-            elapsed = time.time() - start_time
+            info, error = extract_with_suppressed_stderr(ydl, url)
             
+            # Si obtuvimos información, retornarla
             if info:
+                elapsed = time.time() - start_time
                 log(f"   ✅ Información obtenida correctamente en {elapsed:.2f}s")
                 log(f"      Video ID: {info.get('id', 'N/A')}")
                 log(f"      Título: {info.get('title', 'N/A')}")
                 log(f"      Duración: {info.get('duration', 'N/A')} segundos")
-            else:
-                log(f"   ⚠️  No se obtuvo información del video después de {elapsed:.2f}s")
+                return info
             
-            return info if info else {}
+            # Si hubo un error, lanzarlo para que se maneje en el except
+            if error:
+                raise error
+            
+            # Si no hay info ni error, intentar métodos alternativos
+            elapsed = time.time() - start_time
+            log(f"   ⚠️  No se obtuvo información del video después de {elapsed:.2f}s")
+            log(f"   🔄 Intentando métodos alternativos...")
             
         except yt_dlp.utils.DownloadError as e:
             error_str = str(e)
@@ -1207,7 +1240,7 @@ def get_video_info(url: str, log_callback=None) -> Dict:
                     
                     log(f"   🔄 Reintentando con extract_flat=True y ignoreerrors=True...")
                     with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl_retry:
-                        info = ydl_retry.extract_info(url, download=False)
+                        info, _ = extract_with_suppressed_stderr(ydl_retry, url)
                         if info:
                             log(f"   ✅ Información básica obtenida (modo plano)")
                             return info
@@ -1226,7 +1259,7 @@ def get_video_info(url: str, log_callback=None) -> Dict:
                     }
                     log(f"   🔄 Reintentando SIN cookies...")
                     with yt_dlp.YoutubeDL(ydl_opts_retry_2) as ydl_retry_2:
-                        info = ydl_retry_2.extract_info(url, download=False)
+                        info, _ = extract_with_suppressed_stderr(ydl_retry_2, url)
                         if info:
                             log(f"   ✅ Información básica obtenida (sin cookies)")
                             return info
@@ -1348,22 +1381,42 @@ def check_file_exists(video_id: Optional[str] = None, artist: Optional[str] = No
     return None
 
 
-def download_audio(url: str, output_path: str, metadata: Dict) -> bool:
+def download_audio(url: str, output_path: str, metadata: Dict, progress_callback=None) -> bool:
     """
     Descarga el audio de YouTube y lo convierte a MP3.
     Intenta múltiples formatos en cascada si el formato preferido falla.
+    
+    Args:
+        url: URL del video de YouTube
+        output_path: Ruta donde guardar el archivo
+        metadata: Metadatos del video
+        progress_callback: Función opcional que se llama con el progreso (recibe un dict con 'status', 'downloaded_bytes', 'total_bytes', etc.)
     """
     # Añadir cookies si están disponibles
     cookies_file = get_cookies_file()
     
     # Lista de formatos a intentar en orden de preferencia
+    # Empezamos con formatos más flexibles para evitar errores de formato no disponible
     format_attempts = [
-        'best',  # Cualquier formato disponible
-        QUALITY,  # Formato preferido original
+        'best',  # Cualquier formato disponible (más flexible)
         'bestaudio/best',  # Mejor audio disponible
+        QUALITY,  # Formato preferido original (puede fallar si no está disponible)
         'best[height<=720]/best',  # Video hasta 720p o mejor disponible
         'worst[ext=mp4]/worst',  # Cualquier formato mp4 disponible
     ]
+    
+    # Crear hook de progreso si se proporciona un callback
+    progress_hooks = []
+    if progress_callback:
+        def progress_hook(d):
+            if d['status'] == 'downloading':
+                progress_callback(d)
+            elif d['status'] == 'finished':
+                # Cuando termina, reportar 100%
+                d['downloaded_bytes'] = d.get('total_bytes', 0) or d.get('total_bytes_estimate', 0)
+                d['total_bytes'] = d.get('total_bytes', 0) or d.get('total_bytes_estimate', 0)
+                progress_callback(d)
+        progress_hooks = [progress_hook]
     
     base_opts = {
         'outtmpl': output_path,
@@ -1374,7 +1427,7 @@ def download_audio(url: str, output_path: str, metadata: Dict) -> bool:
         }],
         'quiet': True,  # Silenciar para evitar warnings innecesarios
         'no_warnings': False,  # Permitir warnings importantes pero silenciar spam
-        'progress_hooks': [],
+        'progress_hooks': progress_hooks,
     }
     
     # Intentar primero con cookies (si están disponibles), luego sin cookies
@@ -1393,26 +1446,36 @@ def download_audio(url: str, output_path: str, metadata: Dict) -> bool:
             print(f"⚠️  Todos los formatos fallaron con cookies, intentando sin cookies...")
         
         for i, fmt in enumerate(format_attempts):
+            ydl_opts = base_opts.copy()
+            ydl_opts['format'] = fmt
+            
+            if cookie_file:
+                ydl_opts['cookiefile'] = cookie_file
+            
+            if i > 0:
+                print(f"⚠️  Intentando con formato alternativo ({i}/{len(format_attempts)-1}): {fmt}")
+            
+            # Suprimir stderr solo para errores de formato durante la descarga
+            import sys
+            import io
+            old_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            
             try:
-                ydl_opts = base_opts.copy()
-                ydl_opts['format'] = fmt
-                
-                if cookie_file:
-                    ydl_opts['cookiefile'] = cookie_file
-                
-                if i > 0:
-                    print(f"⚠️  Intentando con formato alternativo ({i}/{len(format_attempts)-1}): {fmt}")
-                
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
+                sys.stderr = old_stderr  # Restaurar antes de return
                 return True
-            except Exception as e:
-                last_error = e
-                error_str = str(e)
+            except Exception as download_error:
+                stderr_output = sys.stderr.getvalue()
+                sys.stderr = old_stderr  # Restaurar stderr
                 
-                # Si es un error de formato, continuar con el siguiente formato
+                last_error = download_error
+                error_str = str(download_error)
+                
+                # Si es un error de formato, continuar con el siguiente formato sin mostrar el error
                 if 'Requested format is not available' in error_str or 'Only images are available' in error_str:
-                    continue  # Intentar siguiente formato
+                    continue  # Intentar siguiente formato (ya suprimimos el stderr)
                 # Si es un error de video no disponible, puede ser por cookies, intentar sin cookies
                 elif 'Video unavailable' in error_str or 'Private video' in error_str:
                     if cookie_file and len(cookie_attempts) > 1:
@@ -2265,19 +2328,20 @@ def monitor_liked_videos(playlist_url: Optional[str] = None):
         
         print(f"[{i}/{len(liked_videos)}] {title}")
         
-        # Verificar si está rechazado
+        # PRIMERO: Verificar si está rechazado (verificación rápida)
         if is_rejected_video(video_id):
             print(f"   ⊘ Rechazada anteriormente (se omite)")
             print()
             continue
         
-        # Verificar si ya está descargada (usando BD)
+        # SEGUNDO: Verificar si ya está descargada por video_id (verificación rápida)
         existing_song = check_file_exists(video_id=video_id)
         if existing_song:
             print(f"   ✓ Ya está descargada: {existing_song['file_path']}")
             print()
             continue
         
+        # Solo si no está rechazado ni descargado, obtener información del video (operación costosa)
         # Obtener información del video para extraer metadatos
         video_info = get_video_info(url)
         if not video_info:
@@ -2543,27 +2607,123 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
     # Obtener bitrate del archivo MP3
     bitrate_kbps = get_mp3_bitrate(file_path)
     
-    # Registrar en BD
-    success = db.add_song(
-        video_id=video_id,
-        url=clean_url,
-        title=metadata.get('title', video_info.get('title', 'Unknown')),
-        file_path=str(file_path),
-        artist=metadata.get('artist'),
-        year=metadata.get('year'),
-        genre=metadata.get('genre'),
-        decade=decade,
-        file_size=file_size,
-        file_type=file_type,
-        duration=duration,
-        thumbnail_url=thumbnail_url,
-        description=description,
-        download_source=download_source,
-        bitrate_kbps=bitrate_kbps
-    )
+    # Verificar si ya existe antes de intentar añadir
+    existing_song = db.get_song_by_video_id(video_id)
+    if existing_song:
+        print(f"⚠️  Advertencia: La canción con video_id '{video_id}' ya existe en la base de datos.")
+        print(f"   Título existente: {existing_song.get('title', 'N/A')}")
+        print(f"   Artista existente: {existing_song.get('artist', 'N/A')}")
+        print(f"   Archivo existente: {existing_song.get('file_path', 'N/A')}")
+        print(f"   Archivo nuevo: {file_path}")
+        print(f"   📍 Para verla en la interfaz, busca por: '{existing_song.get('title', 'N/A')}' o video_id '{video_id}'")
+        # Intentar actualizar en lugar de insertar (actualizar archivo, tamaño, etc.)
+        update_data = {
+            'file_path': str(file_path),
+            'file_size': file_size,
+            'file_type': file_type,
+            'bitrate_kbps': bitrate_kbps
+        }
+        # También actualizar metadatos si han cambiado
+        if metadata.get('title'):
+            update_data['title'] = metadata.get('title')
+        if metadata.get('artist'):
+            update_data['artist'] = metadata.get('artist')
+        if metadata.get('genre'):
+            update_data['genre'] = metadata.get('genre')
+        if metadata.get('year'):
+            update_data['year'] = metadata.get('year')
+            update_data['decade'] = decade
+        
+        if db.update_song(video_id, **update_data):
+            print(f"✅ Canción actualizada en la base de datos con nueva información.")
+        else:
+            print(f"⚠️  No se pudo actualizar la canción existente, pero ya está en la base de datos.")
+        return
     
-    if not success:
-        print(f"⚠️  Advertencia: La canción ya existe en la base de datos o hubo un error al registrarla.")
+    # Registrar en BD
+    try:
+        success = db.add_song(
+            video_id=video_id,
+            url=clean_url,
+            title=metadata.get('title', video_info.get('title', 'Unknown')),
+            file_path=str(file_path),
+            artist=metadata.get('artist'),
+            year=metadata.get('year'),
+            genre=metadata.get('genre'),
+            decade=decade,
+            file_size=file_size,
+            file_type=file_type,
+            duration=duration,
+            thumbnail_url=thumbnail_url,
+            description=description,
+            download_source=download_source,
+            bitrate_kbps=bitrate_kbps
+        )
+        
+        if success:
+            print(f"✅ Canción registrada correctamente en la base de datos: {metadata.get('title', 'Unknown')}")
+            print(f"   Video ID: {video_id}")
+            print(f"   Artista: {metadata.get('artist', 'N/A')}")
+            print(f"   📍 Puedes encontrarla en la pestaña 'Base de Datos' buscando por: '{metadata.get('title', 'Unknown')}'")
+        else:
+            print(f"⚠️  Error: No se pudo registrar la canción en la base de datos.")
+            print(f"   Video ID: {video_id}")
+            print(f"   Título: {metadata.get('title', 'Unknown')}")
+            print(f"   Artista: {metadata.get('artist', 'N/A')}")
+            print(f"   Archivo: {file_path}")
+            
+            # Verificar si existe por file_path
+            existing_by_path = db.get_song_by_file_path(str(file_path))
+            if existing_by_path:
+                existing_video_id = existing_by_path.get('video_id', 'N/A')
+                print(f"   ⚠️  Ya existe una canción con este archivo:")
+                print(f"      Video ID existente: {existing_video_id}")
+                print(f"      Título existente: {existing_by_path.get('title', 'N/A')}")
+                
+                # Si el video_id existente es de importación y tenemos un video_id real de YouTube, actualizar
+                if existing_video_id.startswith('imported_') and video_id and not video_id.startswith('imported_'):
+                    print(f"   🔄 Actualizando canción importada con video_id real de YouTube...")
+                    update_data = {
+                        'url': clean_url,
+                        'title': metadata.get('title', video_info.get('title', 'Unknown')),
+                        'artist': metadata.get('artist'),
+                        'year': metadata.get('year'),
+                        'genre': metadata.get('genre'),
+                        'decade': decade,
+                        'file_path': str(file_path),
+                        'file_size': file_size,
+                        'file_type': file_type,
+                        'duration': duration,
+                        'thumbnail_url': thumbnail_url,
+                        'description': description,
+                        'download_source': download_source,
+                        'bitrate_kbps': bitrate_kbps
+                    }
+                    
+                    if db.update_song_video_id(existing_video_id, video_id, **update_data):
+                        print(f"   ✅ Canción actualizada correctamente:")
+                        print(f"      Video ID actualizado: {existing_video_id} → {video_id}")
+                        print(f"      Título: {metadata.get('title', 'Unknown')}")
+                        print(f"      Artista: {metadata.get('artist', 'N/A')}")
+                        print(f"      📍 Ahora puedes encontrarla en la base de datos con video_id '{video_id}'")
+                        return
+                    else:
+                        print(f"   ❌ No se pudo actualizar el video_id de la canción existente.")
+                else:
+                    print(f"      📍 Busca en la base de datos por video_id '{existing_video_id}'")
+            
+            # Verificar si existe por video_id (por si acaso)
+            existing_by_id = db.get_song_by_video_id(video_id)
+            if existing_by_id:
+                print(f"   ⚠️  También existe una canción con este video_id:")
+                print(f"      Título: {existing_by_id.get('title', 'N/A')}")
+                print(f"      Archivo: {existing_by_id.get('file_path', 'N/A')}")
+    except Exception as e:
+        print(f"❌ Error al registrar canción en la base de datos: {e}")
+        print(f"   Video ID: {video_id}")
+        print(f"   Título: {metadata.get('title', 'Unknown')}")
+        import traceback
+        traceback.print_exc()
 
 
 def add_id3_tags(file_path: str, metadata: Dict, video_info: Dict):

@@ -3,6 +3,11 @@ import os
 import json
 import numpy as np
 
+# Configurar TensorFlow para reducir verbosidad de logs
+# Solo mostrar errores críticos, una línea por ejecución
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=info, 2=warnings, 3=errors only
+os.environ['TF_CPP_MIN_VLOG_LEVEL'] = '3'  # Desactivar logs verbosos
+
 try:
     import essentia.standard as es
 except ImportError:

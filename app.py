@@ -5,13 +5,20 @@ Interfaz web moderna con soporte completo para videos embebidos de YouTube.
 """
 
 import os
+import sys
 import re
 import threading
 import time
 import webbrowser
+import logging
 from pathlib import Path
 from urllib.parse import quote
 from dotenv import load_dotenv
+
+# Configurar TensorFlow para reducir verbosidad de logs
+# Solo mostrar errores críticos, una línea por ejecución
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=info, 2=warnings, 3=errors only
+os.environ['TF_CPP_MIN_VLOG_LEVEL'] = '3'  # Desactivar logs verbosos
 
 # Importar Flask
 try:
@@ -54,6 +61,21 @@ MUSIC_FOLDER = os.getenv('MUSIC_FOLDER', os.path.expanduser('~/Music'))
 app = Flask(__name__)
 CORS(app)
 app.config['SECRET_KEY'] = os.urandom(24)
+
+# Configurar logging para suprimir logs automáticos de polling de estado
+class StatusPollingFilter(logging.Filter):
+    """Filtro para suprimir logs de polling de estado de descargas."""
+    def filter(self, record):
+        # Suprimir logs de Werkzeug para rutas de polling de estado
+        # Werkzeug registra en el formato: "GET /api/download/status/xxx HTTP/1.1" 200
+        message = str(record.getMessage())
+        if '/api/download/status/' in message:
+            return False
+        return True
+
+# Aplicar filtro al logger de Werkzeug
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.addFilter(StatusPollingFilter())
 
 # Manejador de errores global para asegurar respuestas JSON
 @app.errorhandler(404)
@@ -101,88 +123,127 @@ def get_playlist():
     print(f"    Límite: {limit}, Ocultar ignoradas: {hide_ignored}")
     
     try:
-        print(f"[{time.strftime('%H:%M:%S')}] 🔍 Llamando a get_liked_videos_from_url...")
-        liked_videos = get_liked_videos_from_url(playlist_url, limit=limit)
-        print(f"[{time.strftime('%H:%M:%S')}] ✅ get_liked_videos_from_url completado: {len(liked_videos)} videos obtenidos")
-        
         videos_data = []
-        print(f"[{time.strftime('%H:%M:%S')}] 🔄 Procesando {len(liked_videos)} videos...")
-        for idx, video in enumerate(liked_videos, 1):
-            print(f"[{time.strftime('%H:%M:%S')}]   [{idx}/{len(liked_videos)}] Procesando video: {video.get('id', 'unknown')} - {video.get('title', 'Unknown')[:50]}")
-            video_id = video['id']
-            url = video['url']
-            title = video['title']
+        batch_size = limit * 5  # Tamaño de cada lote a obtener
+        start_index = 1  # Índice inicial (1-based)
+        max_batches = 10  # Máximo de lotes a intentar (para evitar bucles infinitos)
+        batch_count = 0
+        skipped_count = 0  # Contador de canciones omitidas
+        
+        print(f"[{time.strftime('%H:%M:%S')}] 🔄 Procesando playlist en lotes hasta encontrar {limit} videos válidos...")
+        
+        # Si hide_ignored está activado, obtener videos en lotes hasta tener suficientes válidos
+        # Si no está activado, solo obtener un lote
+        while len(videos_data) < limit and batch_count < max_batches:
+            batch_count += 1
+            current_batch_size = batch_size if hide_ignored else limit
             
-            # Verificar si está rechazada o descargada
-            print(f"      → Verificando si está rechazada o descargada...")
-            is_rejected = is_rejected_video(video_id)
-            existing_song = check_file_exists(video_id=video_id)
+            print(f"[{time.strftime('%H:%M:%S')}] 🔍 Lote {batch_count}: Obteniendo videos desde índice {start_index} (hasta {start_index + current_batch_size - 1})...")
+            liked_videos = get_liked_videos_from_url(playlist_url, limit=current_batch_size, start_index=start_index)
             
-            if hide_ignored and (is_rejected or existing_song):
-                print(f"      → ⏭️  Omitido (rechazado o descargado)")
-                continue
+            if not liked_videos:
+                print(f"    ⚠️  No se obtuvieron más videos de la playlist")
+                break
             
-            # Obtener información del video desde caché o API
-            print(f"      → Obteniendo información del video...")
-            video_info_start = time.time()
-            video_info = db.get_cached_video_info(video_id)
-            if not video_info:
-                print(f"      → No hay caché, obteniendo desde API...")
-                try:
-                    video_info = get_video_info(url)
-                    video_info_elapsed = time.time() - video_info_start
-                    if video_info:
-                        db.set_cached_video_info(video_id, video_info)
-                        print(f"      → ✅ Información obtenida y guardada en caché ({video_info_elapsed:.2f}s)")
-                    else:
-                        print(f"      → ⚠️  No se obtuvo información del video ({video_info_elapsed:.2f}s)")
-                except Exception as e:
-                    video_info_elapsed = time.time() - video_info_start
-                    print(f"      → ⚠️  Error obteniendo info después de {video_info_elapsed:.2f}s: {e}")
-                    video_info = {}
-            else:
-                video_info_elapsed = time.time() - video_info_start
-                print(f"      → ✅ Usando información de caché ({video_info_elapsed:.3f}s)")
+            print(f"    ✅ Obtenidos {len(liked_videos)} videos en este lote")
             
-            # Obtener metadatos desde caché o extraer
-            print(f"      → Obteniendo metadatos...")
-            metadata = db.get_cached_metadata(video_id)
-            if not metadata and video_info:
-                print(f"      → No hay caché de metadatos, extrayendo...")
-                try:
-                    title_from_info = video_info.get('title', title)
-                    description = video_info.get('description', '')
-                    metadata = extract_metadata_from_title(title_from_info, description, video_info)
-                    if metadata:
-                        db.set_cached_metadata(video_id, metadata)
-                        print(f"      → ✅ Metadatos extraídos y guardados")
-                except Exception as e:
-                    print(f"      → ⚠️  Error extrayendo metadatos: {e}")
+            # Procesar los videos del lote actual
+            for idx, video in enumerate(liked_videos, 1):
+                # Si ya tenemos suficientes videos y hide_ignored está activado, parar
+                if hide_ignored and len(videos_data) >= limit:
+                    print(f"    ✅ Ya se encontraron {limit} videos válidos, deteniendo procesamiento")
+                    break
+                
+                video_id = video['id']
+                url = video['url']
+                title = video['title']
+                
+                # PRIMERO: Verificar si está rechazada o descargada (verificación rápida)
+                is_rejected = is_rejected_video(video_id)
+                existing_song = check_file_exists(video_id=video_id)
+                
+                if hide_ignored and (is_rejected or existing_song):
+                    skipped_count += 1
+                    reason = "ya descargada" if existing_song else "ignorada"
+                    print(f"[{time.strftime('%H:%M:%S')}] ⏭️  [{skipped_count}] Omitida ({reason}): {title[:70]}")
+                    continue
+                
+                print(f"[{time.strftime('%H:%M:%S')}]   [{idx}/{len(liked_videos)}] Procesando: {title[:70]}")
+                
+                # Obtener información del video desde caché o API
+                video_info_start = time.time()
+                video_info = db.get_cached_video_info(video_id)
+                if not video_info:
+                    try:
+                        video_info = get_video_info(url)
+                        video_info_elapsed = time.time() - video_info_start
+                        if video_info:
+                            db.set_cached_video_info(video_id, video_info)
+                            print(f"      → ✅ Info obtenida desde API ({video_info_elapsed:.2f}s)")
+                        else:
+                            print(f"      → ⚠️  No se obtuvo información del video")
+                    except Exception as e:
+                        print(f"      → ⚠️  Error obteniendo info: {e}")
+                        video_info = {}
+                else:
+                    print(f"      → ✅ Info desde caché")
+                
+                # Obtener metadatos desde caché o extraer
+                metadata = db.get_cached_metadata(video_id)
+                if not metadata and video_info:
+                    try:
+                        title_from_info = video_info.get('title', title)
+                        description = video_info.get('description', '')
+                        metadata = extract_metadata_from_title(title_from_info, description, video_info)
+                        if metadata:
+                            db.set_cached_metadata(video_id, metadata)
+                    except Exception as e:
+                        print(f"      → ⚠️  Error extrayendo metadatos: {e}")
+                        metadata = {}
+                
+                # Asegurar que metadata nunca sea None
+                if metadata is None:
                     metadata = {}
+                
+                # Obtener género desde caché o detectar
+                genre = db.get_cached_genre(video_id)
+                if not genre:
+                    genre = metadata.get('genre', 'Sin Clasificar') if metadata else 'Sin Clasificar'
+                
+                # Obtener información de progreso si está descargando
+                is_downloading = video_id in download_status and download_status[video_id].get('status') == 'downloading'
+                progress = 0
+                if is_downloading:
+                    progress = download_status[video_id].get('progress', 0)
+                
+                videos_data.append({
+                    'id': video_id,
+                    'title': title,
+                    'url': url,
+                    'thumbnail': video_info.get('thumbnail', '') if video_info else '',
+                    'genre': genre,
+                    'artist': metadata.get('artist', 'Desconocido') if metadata else 'Desconocido',
+                    'is_rejected': is_rejected,
+                    'is_downloaded': existing_song is not None,
+                    'is_downloading': is_downloading,
+                    'progress': progress
+                })
+                print(f"      → ✅ Agregada a la lista ({len(videos_data)}/{limit})")
+            
+            # Si no tenemos suficientes videos válidos y hide_ignored está activado, obtener el siguiente lote
+            if hide_ignored and len(videos_data) < limit:
+                start_index += len(liked_videos)
+                print(f"    📊 Progreso: {len(videos_data)}/{limit} válidos encontrados, {skipped_count} omitidas. Obteniendo siguiente lote...")
             else:
-                print(f"      → ✅ Usando metadatos de caché")
-            
-            # Obtener género desde caché o detectar
-            genre = db.get_cached_genre(video_id)
-            if not genre:
-                genre = metadata.get('genre', 'Sin Clasificar')
-            
-            videos_data.append({
-                'id': video_id,
-                'title': title,
-                'url': url,
-                'thumbnail': video_info.get('thumbnail', '') if video_info else '',
-                'genre': genre,
-                'artist': metadata.get('artist', 'Desconocido') if metadata else 'Desconocido',
-                'is_rejected': is_rejected,
-                'is_downloaded': existing_song is not None,
-                'is_downloading': video_id in download_status and download_status[video_id].get('status') == 'downloading'
-            })
-            print(f"      → ✅ Video agregado a la lista")
+                # Si hide_ignored no está activado o ya tenemos suficientes, no necesitamos más lotes
+                break
         
         elapsed = time.time() - start_time
         print(f"[{time.strftime('%H:%M:%S')}] ✅ GET /api/playlist - Completado en {elapsed:.2f}s")
-        print(f"    Videos procesados: {len(videos_data)} de {len(liked_videos)} obtenidos")
+        print(f"    📊 Resultado: {len(videos_data)}/{limit} videos válidos mostrados")
+        if skipped_count > 0:
+            print(f"    ⏭️  {skipped_count} canciones omitidas (ya descargadas o ignoradas)")
+        print(f"    📦 Lotes procesados: {batch_count}")
         return jsonify({
             'success': True,
             'videos': videos_data,
@@ -212,10 +273,40 @@ def download_song():
     
     def download_thread():
         try:
-            download_status[video_id] = {'status': 'downloading', 'progress': 0}
+            download_status[video_id] = {'status': 'downloading', 'progress': 0, 'downloaded_bytes': 0, 'total_bytes': 0}
             download_logs[video_id] = []
             
+            # Callback para actualizar el progreso
+            def update_progress(d):
+                status = d.get('status', '')
+                if status == 'downloading':
+                    downloaded = d.get('downloaded_bytes', 0)
+                    total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+                    if total and total > 0:
+                        # Calcular progreso entre 20% y 80% (la descarga real)
+                        # 20% es el inicio de la descarga, 80% es cuando termina
+                        download_progress = int((downloaded / total) * 60)  # 0-60% de la descarga
+                        progress = 20 + download_progress  # 20% a 80%
+                        download_status[video_id].update({
+                            'status': 'downloading',
+                            'progress': min(progress, 80),  # Máximo 80% durante la descarga
+                            'downloaded_bytes': downloaded,
+                            'total_bytes': total,
+                            'speed': d.get('speed', 0),
+                            'eta': d.get('eta', 0)
+                        })
+                    else:
+                        download_status[video_id].update({
+                            'status': 'downloading',
+                            'downloaded_bytes': downloaded,
+                            'total_bytes': 0
+                        })
+                elif status == 'finished':
+                    # Cuando termina la descarga, ya estamos en 80%
+                    download_status[video_id]['progress'] = 80
+            
             # Obtener información del video
+            download_status[video_id]['progress'] = 5  # 5% - Obteniendo info
             video_info = get_video_info(video_url)
             if not video_info:
                 download_status[video_id] = {'status': 'error', 'error': 'No se pudo obtener información del video'}
@@ -225,10 +316,12 @@ def download_song():
             description = video_info.get('description', '')
             
             # Extraer metadatos
+            download_status[video_id]['progress'] = 10  # 10% - Extrayendo metadatos
             metadata = extract_metadata_from_title(title, description, video_info)
             
             # Detectar género si no está
             if not metadata.get('genre'):
+                download_status[video_id]['progress'] = 15  # 15% - Detectando género
                 detected_genre = detect_genre_online(
                     metadata.get('artist'),
                     metadata.get('title', title),
@@ -253,8 +346,10 @@ def download_song():
             filename = sanitize_filename(filename)
             output_path = output_folder / filename
             
-            # Descargar
-            if download_audio(video_url, str(output_path), metadata):
+            # Descargar (el progreso se actualizará automáticamente con el callback)
+            download_status[video_id]['progress'] = 20  # 20% - Iniciando descarga
+            if download_audio(video_url, str(output_path), metadata, progress_callback=update_progress):
+                download_status[video_id]['progress'] = 80  # 80% - Descarga completada, procesando
                 mp3_file = Path(str(output_path) + '.mp3')
                 if not mp3_file.exists():
                     mp3_files = list(output_folder.glob(f"{filename}*.mp3"))
@@ -262,15 +357,18 @@ def download_song():
                         mp3_file = mp3_files[0]
                 
                 # Verificar y normalizar volumen
+                download_status[video_id]['progress'] = 85  # 85% - Normalizando audio
                 check_and_normalize_audio(str(mp3_file))
                 
                 # Añadir metadatos ID3
+                download_status[video_id]['progress'] = 90  # 90% - Añadiendo metadatos
                 add_id3_tags(str(mp3_file), metadata, video_info)
                 
                 # Registrar en base de datos
+                download_status[video_id]['progress'] = 95  # 95% - Registrando en BD
                 register_song_in_db(video_id, video_url, mp3_file, metadata, video_info, download_source='playlist')
                 
-                download_status[video_id] = {'status': 'completed', 'file': str(mp3_file)}
+                download_status[video_id] = {'status': 'completed', 'progress': 100, 'file': str(mp3_file)}
             else:
                 download_status[video_id] = {'status': 'error', 'error': 'Error en la descarga'}
                 
@@ -289,6 +387,19 @@ def get_download_status(task_id):
     # Intentar como video_id primero
     status = download_status.get(task_id, {})
     if status:
+        status_type = status.get('status', 'unknown')
+        progress = status.get('progress', 0)
+        
+        # Solo loguear cuando hay actividad relevante (no en cada polling)
+        # Loguear solo en cambios de estado o progreso significativo
+        if status_type in ['downloading', 'completed', 'error']:
+            if status_type == 'downloading' and progress > 0:
+                # Solo loguear cada 10% de progreso para no saturar
+                if progress % 10 == 0 or progress in [5, 20, 50, 80, 90, 95]:
+                    print(f"[{time.strftime('%H:%M:%S')}] 📥 Estado descarga {task_id[:8]}...: {status_type} ({progress}%)")
+            elif status_type in ['completed', 'error']:
+                print(f"[{time.strftime('%H:%M:%S')}] {'✅' if status_type == 'completed' else '❌'} Descarga {task_id[:8]}...: {status_type}")
+        
         logs = download_logs.get(task_id, [])
         return jsonify({
             'status': status,
@@ -298,12 +409,17 @@ def get_download_status(task_id):
     # Si no, intentar como task_id de descarga directa
     task_status = direct_download_tasks.get(task_id, {})
     if task_status:
+        status_type = task_status.get('status', 'idle')
+        if status_type in ['completed', 'error']:
+            print(f"[{time.strftime('%H:%M:%S')}] {'✅' if status_type == 'completed' else '❌'} Descarga directa {task_id[:8]}...: {status_type}")
+        
         return jsonify({
             'status': task_status.get('status', 'idle'),
             'error': task_status.get('error'),
             'file': task_status.get('file')
         })
     
+    # No loguear cuando el estado es 'idle' (polling normal)
     return jsonify({'status': 'idle'})
 
 
@@ -764,11 +880,17 @@ def get_config():
                                 value = value[1:-1]
                             config[key] = value
         
+        # Obtener la ruta real de la base de datos (por defecto si no está configurada)
+        db_path_config = config.get('DB_PATH', '')
+        if not db_path_config and db is not None:
+            # Usar la ruta real de la base de datos actual
+            db_path_config = str(db.db_path)
+        
         return jsonify({
             'success': True,
             'config': {
                 'MUSIC_FOLDER': config.get('MUSIC_FOLDER', ''),
-                'DB_PATH': config.get('DB_PATH', ''),
+                'DB_PATH': db_path_config,
                 'LASTFM_API_KEY': config.get('LASTFM_API_KEY', '')
             }
         })
@@ -824,6 +946,75 @@ def save_config_endpoint():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/config/reload', methods=['POST'])
+def reload_config():
+    """Recarga la configuración desde .env y reinicializa la base de datos."""
+    global db, DB_PATH, MUSIC_FOLDER
+    
+    try:
+        # Cerrar la base de datos actual
+        if db:
+            db.close()
+        
+        # Recargar variables de entorno
+        load_dotenv(override=True)
+        
+        # Obtener nuevas rutas
+        new_db_path = os.getenv('DB_PATH', None)
+        new_music_folder = os.getenv('MUSIC_FOLDER', os.path.expanduser('~/Music'))
+        
+        # Actualizar variables globales
+        DB_PATH = new_db_path
+        MUSIC_FOLDER = new_music_folder
+        
+        # Reinicializar base de datos con la nueva ruta
+        db = MusicDatabase(DB_PATH)
+        
+        print(f"🔄 Configuración recargada:")
+        print(f"   📁 Carpeta de música: {MUSIC_FOLDER}")
+        print(f"   🗄️  Base de datos: {DB_PATH or 'Por defecto'}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Configuración recargada',
+            'config': {
+                'MUSIC_FOLDER': MUSIC_FOLDER,
+                'DB_PATH': DB_PATH or ''
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config/restart', methods=['POST'])
+def restart_app():
+    """Reinicia la aplicación completamente."""
+    import subprocess
+    
+    def do_restart():
+        time.sleep(1)  # Dar tiempo a que se envíe la respuesta
+        
+        # Detectar si estamos en ejecutable de PyInstaller
+        is_frozen = getattr(sys, 'frozen', False)
+        
+        if is_frozen:
+            # En ejecutable: reiniciar el proceso
+            executable = sys.executable
+            os.execv(executable, [executable] + sys.argv)
+        else:
+            # En desarrollo: simplemente salir (el auto-reload de Flask se encargará)
+            os._exit(0)
+    
+    threading.Thread(target=do_restart, daemon=True).start()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Reiniciando aplicación...'
+    })
+
+
 @app.route('/api/config/reset-db', methods=['POST'])
 def reset_database():
     """Resetea la base de datos."""
@@ -863,6 +1054,87 @@ def model_status():
     })
 
 
+@app.route('/api/browse', methods=['GET'])
+def browse_filesystem():
+    """Lista el contenido de un directorio para el explorador de archivos."""
+    path = request.args.get('path', '')
+    mode = request.args.get('mode', 'folder')  # 'folder' o 'file'
+    
+    try:
+        # Si no hay ruta, usar el directorio home del usuario
+        if not path:
+            path = os.path.expanduser('~')
+        
+        # Normalizar la ruta
+        path = os.path.normpath(path)
+        
+        # Verificar que el directorio existe
+        if not os.path.exists(path):
+            return jsonify({
+                'success': False,
+                'error': f'La ruta no existe: {path}'
+            }), 404
+        
+        # Si es un archivo, usar su directorio padre
+        if os.path.isfile(path):
+            path = os.path.dirname(path)
+        
+        items = []
+        
+        # Listar contenido del directorio
+        try:
+            for item in os.listdir(path):
+                item_path = os.path.join(path, item)
+                is_dir = os.path.isdir(item_path)
+                
+                # En modo 'file', mostrar archivos .db o .sqlite también
+                if mode == 'file' and not is_dir:
+                    ext = os.path.splitext(item)[1].lower()
+                    if ext not in ['.db', '.sqlite', '.sqlite3']:
+                        continue
+                
+                items.append({
+                    'name': item,
+                    'path': item_path,
+                    'is_dir': is_dir
+                })
+        except PermissionError:
+            return jsonify({
+                'success': False,
+                'error': f'Sin permisos para acceder a: {path}'
+            }), 403
+        
+        # Ordenar: carpetas primero, luego archivos, ambos alfabéticamente
+        items.sort(key=lambda x: (not x['is_dir'], x['name'].lower()))
+        
+        # Obtener directorio padre
+        parent = os.path.dirname(path)
+        if parent == path:  # Llegamos a la raíz
+            parent = None
+        
+        # Obtener unidades en Windows
+        drives = []
+        if sys.platform == 'win32':
+            import string
+            for letter in string.ascii_uppercase:
+                drive = f"{letter}:\\"
+                if os.path.exists(drive):
+                    drives.append(drive)
+        
+        return jsonify({
+            'success': True,
+            'current_path': path,
+            'parent': parent,
+            'items': items,
+            'drives': drives,
+            'separator': os.sep
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Crear directorio de templates si no existe
     templates_dir = Path(__file__).parent / 'templates'
@@ -874,19 +1146,44 @@ if __name__ == '__main__':
         print("   (Flask arrancará inmediatamente, el modelo se cargará en paralelo)")
         preload_model_async()
     
-    # Abrir navegador automáticamente solo en el proceso principal
-    # (no en el proceso recargado por Werkzeug)
-    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+    # Abrir navegador automáticamente
+    # - En ejecutable de PyInstaller: siempre abrir (sys.frozen está definido)
+    # - En desarrollo: solo en el proceso principal (no en el recargado por Werkzeug)
+    is_frozen = getattr(sys, 'frozen', False)
+    is_main_process = os.environ.get('WERKZEUG_RUN_MAIN') != 'true'
+    
+    if is_frozen or is_main_process:
         def open_browser():
             time.sleep(1.5)
-            webbrowser.open('http://127.0.0.1:5000')
+            # Intentar obtener la IP de la red (localhost/127.0.0.1 a veces falla en Windows)
+            import socket
+            try:
+                # Conectar a un servidor externo para obtener la IP local
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+            except Exception:
+                local_ip = "127.0.0.1"
+            
+            url = f'http://{local_ip}:5001'
+            print(f"📱 Abriendo navegador en {url}")
+            webbrowser.open(url)
         
         threading.Thread(target=open_browser, daemon=True).start()
     
-    print("🚀 Iniciando servidor Flask...")
-    print("📱 Abriendo navegador en http://127.0.0.1:5000")
-    print("🌐 Servidor accesible desde todas las interfaces de red (0.0.0.0:5000)")
-    print("💡 Presiona Ctrl+C para detener el servidor")
-    print("🔄 Auto-reload activado: el servidor se reiniciará al cambiar archivos Python")
+    # Detectar si estamos ejecutando como ejecutable de PyInstaller
+    is_frozen = getattr(sys, 'frozen', False)
     
-    app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=True)
+    # En ejecutable, desactivar debug y auto-reload
+    # En desarrollo, mantener debug activado
+    debug_mode = not is_frozen
+    use_reloader = not is_frozen
+    
+    print("🚀 Iniciando servidor Flask...")
+    print("🌐 Servidor accesible desde todas las interfaces de red (0.0.0.0:5001)")
+    print("💡 Presiona Ctrl+C para detener el servidor")
+    if use_reloader:
+        print("🔄 Auto-reload activado: el servidor se reiniciará al cambiar archivos Python")
+    
+    app.run(debug=debug_mode, host='0.0.0.0', port=5001, use_reloader=use_reloader)

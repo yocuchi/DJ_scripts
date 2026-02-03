@@ -357,6 +357,156 @@
         tr.context-menu-active {
             background: #e3f2fd !important;
         }
+        
+        /* Modal de explorador de archivos */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-overlay.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            width: 90%;
+            max-width: 700px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header h3 {
+            margin: 0;
+            color: #667eea;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+        }
+        
+        .modal-close:hover {
+            color: #333;
+        }
+        
+        .modal-body {
+            padding: 20px;
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .modal-footer {
+            padding: 15px 20px;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        
+        .path-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .path-bar input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            min-width: 200px;
+        }
+        
+        .path-bar button {
+            padding: 8px 12px;
+        }
+        
+        .drives-bar {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .drive-btn {
+            padding: 5px 10px;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .drive-btn:hover {
+            background: #e0e0e0;
+        }
+        
+        .file-list {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            gap: 10px;
+        }
+        
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        
+        .file-item:hover {
+            background: #f5f5f5;
+        }
+        
+        .file-item.selected {
+            background: #e3f2fd;
+        }
+        
+        .file-item .icon {
+            font-size: 20px;
+        }
+        
+        .file-item .name {
+            flex: 1;
+        }
+        
+        .parent-item {
+            color: #666;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -479,8 +629,14 @@
             </div>
             <div class="control-group">
                 <button class="btn btn-success" onclick="saveConfig()">💾 Guardar Configuración</button>
+                <button class="btn btn-primary" onclick="saveAndReloadConfig()" style="margin-left: 10px;">🔄 Guardar y Aplicar</button>
             </div>
-            <div style="margin-top: 30px; padding: 20px; background: #fff3cd; border-radius: 10px;">
+            <div style="margin-top: 20px; padding: 15px; background: #d4edda; border-radius: 10px;">
+                <h3>🔄 Reinicio de la Aplicación</h3>
+                <p style="margin: 10px 0;">Si los cambios no se aplican correctamente, reinicia la aplicación:</p>
+                <button class="btn btn-warning" onclick="restartApp()">🔁 Reiniciar Aplicación</button>
+            </div>
+            <div style="margin-top: 20px; padding: 20px; background: #fff3cd; border-radius: 10px;">
                 <h3>⚠️ Zona de Peligro</h3>
                 <p style="margin: 10px 0;">Estas acciones son destructivas e irreversibles</p>
                 <button class="btn btn-danger" onclick="resetDatabase()">💣 RESETEAR BASE DE DATOS</button>
@@ -497,6 +653,31 @@
                 <hr style="margin: 30px 0;">
                 <p style="margin: 20px 0;"><strong>Versión:</strong> 1.0.0</p>
                 <p style="margin: 20px 0;"><strong>GitHub:</strong> <a href="https://github.com/tu-usuario/tu-repo" target="_blank">https://github.com/tu-usuario/tu-repo</a></p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal de Explorador de Archivos -->
+    <div id="file-browser-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="browser-title">📂 Seleccionar Carpeta</h3>
+                <button class="modal-close" onclick="closeBrowser()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="path-bar">
+                    <input type="text" id="current-path-input" placeholder="Ruta actual...">
+                    <button class="btn btn-primary" onclick="navigateToPath()">Ir</button>
+                    <button class="btn btn-primary" onclick="goToParent()">⬆️ Subir</button>
+                </div>
+                <div id="drives-container" class="drives-bar" style="display: none;"></div>
+                <div id="file-list" class="file-list">
+                    <p style="padding: 20px; text-align: center; color: #666;">Cargando...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeBrowser()">Cancelar</button>
+                <button class="btn btn-success" id="select-btn" onclick="confirmSelection()">Seleccionar</button>
             </div>
         </div>
     </div>
@@ -1114,6 +1295,8 @@
             
             clearLog('playlist');
             log('playlist', `🔄 Cargando playlist...`);
+            log('playlist', `   📋 URL: ${playlistUrl}`);
+            log('playlist', `   🎵 Buscando ${limit} canciones${hideIgnored ? ' (ocultando descargadas/ignoradas)' : ''}...`);
             
             try {
                 const response = await fetch(`/api/playlist?url=${encodeURIComponent(playlistUrl)}&limit=${limit}&hide_ignored=${hideIgnored}`);
@@ -1121,7 +1304,7 @@
                 
                 if (data.success) {
                     renderPlaylist(data.videos);
-                    log('playlist', `✅ Playlist cargada: ${data.count} canciones`);
+                    log('playlist', `✅ Playlist cargada: ${data.count} canciones mostradas`);
                 } else {
                     log('playlist', `❌ Error: ${data.error}`);
                 }
@@ -1143,11 +1326,22 @@
                                    video.is_downloaded ? 'downloaded' : 
                                    video.is_rejected ? 'rejected' : '';
                 
+                // Obtener progreso si está descargando - mostrar siempre si está descargando
+                const progressBar = video.is_downloading ? 
+                    `<div class="progress-container" style="margin-top: 10px; width: 100%; max-width: 500px;">
+                        <div class="progress-bar" style="width: 100%; height: 24px; background-color: #e0e0e0; border-radius: 12px; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+                            <div id="progress-${video.id}" class="progress-fill" style="height: 100%; background: linear-gradient(90deg, #4CAF50, #45a049); width: ${video.progress || 0}%; transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: bold; min-width: ${(video.progress || 0) > 0 ? '50px' : '0'};">
+                                ${video.progress || 0}%
+                            </div>
+                        </div>
+                        <div id="progress-info-${video.id}" style="font-size: 11px; color: #666; margin-top: 5px; text-align: left;"></div>
+                    </div>` : '';
+                
                 const actionButtons = !video.is_rejected && !video.is_downloaded ? 
                     `<button class="btn btn-success" onclick="downloadSong('${video.id}', '${video.url.replace(/'/g, "\\'")}')" ${video.is_downloading ? 'disabled' : ''}>
                         ${video.is_downloading ? '⏳ Descargando...' : '📥 Descargar'}
                      </button>
-                     <button class="btn btn-danger" onclick="rejectSong('${video.id}', '${video.url.replace(/'/g, "\\'")}', '${video.title.replace(/'/g, "\\'")}')">⊘ Ignorar</button>` :
+                     <button class="btn btn-danger" onclick="rejectSong('${video.id}', '${video.url.replace(/'/g, "\\'")}', '${video.title.replace(/'/g, "\\'")}')" ${video.is_downloading ? 'disabled' : ''}>⊘ Ignorar</button>` :
                     '';
                 
                 return `
@@ -1155,10 +1349,11 @@
                         <div class="thumbnail-container" onclick="toggleVideo('${video.id}', '${video.url}')">
                             <img src="${video.thumbnail || ''}" alt="${video.title}" onerror="this.style.display='none'">
                         </div>
-                        <div class="song-info">
+                        <div class="song-info" style="flex: 1;">
                             <div class="song-title">${index + 1}. ${video.title}</div>
                             <div class="song-meta">🎤 ${video.artist}</div>
                             <div class="song-meta">🎵 ${video.genre}</div>
+                            ${progressBar}
                         </div>
                         <div class="song-actions">
                             ${actionButtons}
@@ -1216,6 +1411,30 @@
             const songEl = document.getElementById(`song-${videoId}`);
             songEl.classList.add('downloading');
             
+            // Agregar barra de progreso inmediatamente
+            const songInfo = songEl.querySelector('.song-info');
+            if (songInfo && !songInfo.querySelector('.progress-container')) {
+                const progressHTML = `
+                    <div class="progress-container" style="margin-top: 10px; width: 100%; max-width: 500px;">
+                        <div class="progress-bar" style="width: 100%; height: 24px; background-color: #e0e0e0; border-radius: 12px; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+                            <div id="progress-${videoId}" class="progress-fill" style="height: 100%; background: linear-gradient(90deg, #4CAF50, #45a049); width: 0%; transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: bold;">
+                                0%
+                            </div>
+                        </div>
+                        <div id="progress-info-${videoId}" style="font-size: 11px; color: #666; margin-top: 5px; text-align: left;"></div>
+                    </div>
+                `;
+                songInfo.insertAdjacentHTML('beforeend', progressHTML);
+            }
+            
+            // Deshabilitar botones
+            const buttons = songEl.querySelectorAll('button');
+            buttons.forEach(btn => btn.disabled = true);
+            const downloadBtn = songEl.querySelector('.btn-success');
+            if (downloadBtn) {
+                downloadBtn.textContent = '⏳ Descargando...';
+            }
+            
             try {
                 const response = await fetch('/api/download', {
                     method: 'POST',
@@ -1228,9 +1447,19 @@
                     monitorDownload(videoId);
                 } else {
                     log('playlist', `❌ Error: ${data.error}`);
+                    songEl.classList.remove('downloading');
+                    buttons.forEach(btn => btn.disabled = false);
+                    if (downloadBtn) {
+                        downloadBtn.textContent = '📥 Descargar';
+                    }
                 }
             } catch (error) {
                 log('playlist', `❌ Error: ${error.message}`);
+                songEl.classList.remove('downloading');
+                buttons.forEach(btn => btn.disabled = false);
+                if (downloadBtn) {
+                    downloadBtn.textContent = '📥 Descargar';
+                }
             }
         }
         
@@ -1256,27 +1485,127 @@
         }
         
         function monitorDownload(videoId) {
+            const songEl = document.getElementById(`song-${videoId}`);
+            if (!songEl) {
+                console.error(`No se encontró el elemento song-${videoId}`);
+                return;
+            }
+            
+            // Asegurar que la barra de progreso existe
+            let progressBar = document.getElementById(`progress-${videoId}`);
+            let progressInfo = document.getElementById(`progress-info-${videoId}`);
+            
+            if (!progressBar) {
+                const songInfo = songEl.querySelector('.song-info');
+                if (songInfo) {
+                    const progressHTML = `
+                        <div class="progress-container" style="margin-top: 10px; width: 100%; max-width: 500px;">
+                            <div class="progress-bar" style="width: 100%; height: 24px; background-color: #e0e0e0; border-radius: 12px; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+                                <div id="progress-${videoId}" class="progress-fill" style="height: 100%; background: linear-gradient(90deg, #4CAF50, #45a049); width: 0%; transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: bold;">
+                                    0%
+                                </div>
+                            </div>
+                            <div id="progress-info-${videoId}" style="font-size: 11px; color: #666; margin-top: 5px; text-align: left;"></div>
+                        </div>
+                    `;
+                    songInfo.insertAdjacentHTML('beforeend', progressHTML);
+                    progressBar = document.getElementById(`progress-${videoId}`);
+                    progressInfo = document.getElementById(`progress-info-${videoId}`);
+                }
+            }
+            
             const interval = setInterval(async () => {
                 try {
                     const response = await fetch(`/api/download/status/${videoId}`);
                     const data = await response.json();
                     
-                    if (data.status.status === 'completed') {
+                    const status = data.status.status || data.status;
+                    const progress = data.status.progress || 0;
+                    
+                    // Actualizar barra de progreso
+                    if (progressBar) {
+                        progressBar.style.width = `${progress}%`;
+                        progressBar.textContent = `${progress}%`;
+                        
+                        // Asegurar que el texto sea visible
+                        if (progress < 15) {
+                            progressBar.style.color = '#333';
+                            progressBar.style.justifyContent = 'flex-start';
+                            progressBar.style.paddingLeft = '8px';
+                        } else {
+                            progressBar.style.color = 'white';
+                            progressBar.style.justifyContent = 'center';
+                            progressBar.style.paddingLeft = '0';
+                        }
+                    }
+                    
+                    if (progressInfo && data.status) {
+                        const downloaded = data.status.downloaded_bytes || 0;
+                        const total = data.status.total_bytes || 0;
+                        const speed = data.status.speed || 0;
+                        const eta = data.status.eta || 0;
+                        
+                        let infoText = '';
+                        if (total > 0) {
+                            const downloadedMB = (downloaded / (1024 * 1024)).toFixed(2);
+                            const totalMB = (total / (1024 * 1024)).toFixed(2);
+                            infoText = `${downloadedMB} MB / ${totalMB} MB`;
+                            
+                            if (speed > 0) {
+                                const speedMB = (speed / (1024 * 1024)).toFixed(2);
+                                infoText += ` • ${speedMB} MB/s`;
+                            }
+                            
+                            if (eta > 0) {
+                                const etaMin = Math.floor(eta / 60);
+                                const etaSec = eta % 60;
+                                infoText += ` • ETA: ${etaMin}:${etaSec.toString().padStart(2, '0')}`;
+                            }
+                        } else if (progress > 0) {
+                            infoText = `Procesando... ${progress}%`;
+                        }
+                        
+                        progressInfo.textContent = infoText;
+                    }
+                    
+                    if (status === 'completed') {
                         clearInterval(interval);
-                        loadPlaylist();
-                    } else if (data.status.status === 'error') {
+                        if (progressBar) {
+                            progressBar.style.width = '100%';
+                            progressBar.textContent = '100%';
+                        }
+                        // Esperar un momento antes de recargar para que se vea el 100%
+                        setTimeout(() => {
+                            loadPlaylist();
+                        }, 1000);
+                    } else if (status === 'error') {
                         clearInterval(interval);
-                        log('playlist', `❌ Error: ${data.status.error}`);
+                        log('playlist', `❌ Error: ${data.status.error || 'Error desconocido'}`);
+                        if (progressBar) {
+                            progressBar.style.background = '#f44336';
+                            progressBar.textContent = 'Error';
+                        }
+                        // Rehabilitar botones
+                        const buttons = songEl.querySelectorAll('button');
+                        buttons.forEach(btn => btn.disabled = false);
+                        const downloadBtn = songEl.querySelector('.btn-success');
+                        if (downloadBtn) {
+                            downloadBtn.textContent = '📥 Descargar';
+                        }
                     }
                 } catch (error) {
                     console.error('Error:', error);
                 }
-            }, 2000);
+            }, 1000); // Actualizar cada segundo para mejor experiencia
         }
         
         // ========== PESTAÑA: IMPORTAR ==========
         function browseFolder() {
-            alert('Funcionalidad de selección de carpeta pendiente de implementar');
+            const currentValue = document.getElementById('import-folder').value;
+            openBrowser('folder', (path) => {
+                document.getElementById('import-folder').value = path;
+                log('import', `📁 Carpeta seleccionada: ${path}`);
+            }, currentValue);
         }
         
         async function importFolder() {
@@ -1419,12 +1748,200 @@
             }
         }
         
+        // ========== EXPLORADOR DE ARCHIVOS ==========
+        let browserMode = 'folder'; // 'folder' o 'file'
+        let browserCallback = null;
+        let currentBrowserPath = '';
+        let selectedItem = null;
+        
+        function openBrowser(mode, callback, initialPath = '') {
+            browserMode = mode;
+            browserCallback = callback;
+            selectedItem = null;
+            
+            const modal = document.getElementById('file-browser-modal');
+            const title = document.getElementById('browser-title');
+            const selectBtn = document.getElementById('select-btn');
+            
+            if (mode === 'folder') {
+                title.textContent = '📂 Seleccionar Carpeta';
+                selectBtn.textContent = 'Seleccionar Carpeta';
+            } else {
+                title.textContent = '📄 Seleccionar Archivo de Base de Datos';
+                selectBtn.textContent = 'Seleccionar Archivo';
+            }
+            
+            modal.classList.add('active');
+            loadDirectory(initialPath || '');
+        }
+        
+        function closeBrowser() {
+            const modal = document.getElementById('file-browser-modal');
+            modal.classList.remove('active');
+            browserCallback = null;
+        }
+        
+        async function loadDirectory(path) {
+            const fileList = document.getElementById('file-list');
+            const pathInput = document.getElementById('current-path-input');
+            const drivesContainer = document.getElementById('drives-container');
+            
+            fileList.innerHTML = '<p style="padding: 20px; text-align: center; color: #666;">Cargando...</p>';
+            
+            try {
+                const response = await fetch(`/api/browse?path=${encodeURIComponent(path)}&mode=${browserMode}`);
+                const data = await response.json();
+                
+                if (!data.success) {
+                    fileList.innerHTML = `<p style="padding: 20px; text-align: center; color: #dc3545;">❌ ${data.error}</p>`;
+                    return;
+                }
+                
+                currentBrowserPath = data.current_path;
+                pathInput.value = data.current_path;
+                
+                // Mostrar unidades en Windows
+                if (data.drives && data.drives.length > 0) {
+                    drivesContainer.style.display = 'flex';
+                    drivesContainer.innerHTML = data.drives.map(drive => 
+                        `<button class="drive-btn" onclick="loadDirectory('${drive.replace(/\\/g, '\\\\')}')">${drive}</button>`
+                    ).join('');
+                } else {
+                    drivesContainer.style.display = 'none';
+                }
+                
+                let html = '';
+                
+                // Botón para ir al directorio padre
+                if (data.parent) {
+                    const parentPath = data.parent.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                    html += `<div class="file-item parent-item" onclick="loadDirectory('${parentPath}')">
+                        <span class="icon">⬆️</span>
+                        <span class="name">..</span>
+                    </div>`;
+                }
+                
+                // Listar elementos
+                if (data.items.length === 0) {
+                    html += '<p style="padding: 20px; text-align: center; color: #666;">Carpeta vacía</p>';
+                } else {
+                    data.items.forEach(item => {
+                        const escapedPath = item.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                        const icon = item.is_dir ? '📁' : '📄';
+                        
+                        if (item.is_dir) {
+                            html += `<div class="file-item" data-path="${item.path}" data-is-dir="true" 
+                                        onclick="handleItemClick(this, '${escapedPath}', true)" 
+                                        ondblclick="loadDirectory('${escapedPath}')">
+                                <span class="icon">${icon}</span>
+                                <span class="name">${item.name}</span>
+                            </div>`;
+                        } else {
+                            html += `<div class="file-item" data-path="${item.path}" data-is-dir="false"
+                                        onclick="handleItemClick(this, '${escapedPath}', false)">
+                                <span class="icon">${icon}</span>
+                                <span class="name">${item.name}</span>
+                            </div>`;
+                        }
+                    });
+                }
+                
+                fileList.innerHTML = html;
+                
+            } catch (error) {
+                fileList.innerHTML = `<p style="padding: 20px; text-align: center; color: #dc3545;">❌ Error: ${error.message}</p>`;
+            }
+        }
+        
+        function handleItemClick(element, path, isDir) {
+            // Remover selección anterior
+            document.querySelectorAll('.file-item.selected').forEach(el => el.classList.remove('selected'));
+            
+            // Seleccionar este elemento
+            element.classList.add('selected');
+            
+            // Guardar el item seleccionado
+            if (browserMode === 'folder' && isDir) {
+                selectedItem = path;
+            } else if (browserMode === 'file' && !isDir) {
+                selectedItem = path;
+            } else if (browserMode === 'folder') {
+                // En modo carpeta, si hacen clic en un archivo, seleccionar la carpeta actual
+                selectedItem = currentBrowserPath;
+            }
+        }
+        
+        function navigateToPath() {
+            const path = document.getElementById('current-path-input').value;
+            if (path) {
+                loadDirectory(path);
+            }
+        }
+        
+        function goToParent() {
+            const pathInput = document.getElementById('current-path-input');
+            const currentPath = pathInput.value;
+            
+            // Obtener directorio padre
+            let parentPath;
+            if (currentPath.includes('/')) {
+                parentPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
+                if (!parentPath) parentPath = '/';
+            } else if (currentPath.includes('\\')) {
+                parentPath = currentPath.substring(0, currentPath.lastIndexOf('\\'));
+                if (!parentPath || parentPath.length === 2) {
+                    // Estamos en la raíz de una unidad (ej: C:)
+                    parentPath = currentPath.substring(0, 3); // C:\
+                }
+            } else {
+                parentPath = '';
+            }
+            
+            loadDirectory(parentPath);
+        }
+        
+        function confirmSelection() {
+            let selectedPath;
+            
+            if (browserMode === 'folder') {
+                // En modo carpeta, usar la carpeta seleccionada o la carpeta actual
+                selectedPath = selectedItem || currentBrowserPath;
+            } else {
+                // En modo archivo, debe haber un archivo seleccionado
+                if (!selectedItem) {
+                    // Si no hay archivo seleccionado, permitir escribir una nueva ruta
+                    const pathInput = document.getElementById('current-path-input');
+                    selectedPath = pathInput.value;
+                    if (!selectedPath) {
+                        alert('Por favor, selecciona un archivo o escribe una ruta');
+                        return;
+                    }
+                } else {
+                    selectedPath = selectedItem;
+                }
+            }
+            
+            if (browserCallback) {
+                browserCallback(selectedPath);
+            }
+            
+            closeBrowser();
+        }
+        
         function browseMusicFolder() {
-            alert('Funcionalidad de selección de carpeta pendiente');
+            const currentValue = document.getElementById('config-music-folder').value;
+            openBrowser('folder', (path) => {
+                document.getElementById('config-music-folder').value = path;
+                log('config', `📁 Carpeta de música seleccionada: ${path}`);
+            }, currentValue);
         }
         
         function browseDbPath() {
-            alert('Funcionalidad de selección de archivo pendiente');
+            const currentValue = document.getElementById('config-db-path').value;
+            openBrowser('file', (path) => {
+                document.getElementById('config-db-path').value = path;
+                log('config', `🗄️ Base de datos seleccionada: ${path}`);
+            }, currentValue);
         }
         
         async function saveConfig() {
@@ -1452,6 +1969,80 @@
                 }
             } catch (error) {
                 log('config', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function saveAndReloadConfig() {
+            const config = {
+                MUSIC_FOLDER: document.getElementById('config-music-folder').value,
+                DB_PATH: document.getElementById('config-db-path').value,
+                LASTFM_API_KEY: document.getElementById('config-lastfm-key').value
+            };
+            
+            clearLog('config');
+            log('config', '💾 Guardando configuración...');
+            
+            try {
+                // Primero guardar
+                const saveResponse = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                
+                const saveData = await saveResponse.json();
+                if (!saveData.success) {
+                    log('config', `❌ Error al guardar: ${saveData.error}`);
+                    return;
+                }
+                
+                log('config', '✅ Configuración guardada');
+                log('config', '🔄 Aplicando cambios...');
+                
+                // Luego recargar la configuración en memoria
+                const reloadResponse = await fetch('/api/config/reload', {
+                    method: 'POST'
+                });
+                
+                const reloadData = await reloadResponse.json();
+                if (reloadData.success) {
+                    log('config', '✅ Configuración aplicada correctamente');
+                    log('config', `📁 Carpeta de música: ${reloadData.config.MUSIC_FOLDER}`);
+                    log('config', `🗄️ Base de datos: ${reloadData.config.DB_PATH || 'Por defecto'}`);
+                } else {
+                    log('config', `❌ Error al aplicar: ${reloadData.error}`);
+                }
+            } catch (error) {
+                log('config', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function restartApp() {
+            if (!confirm('¿Quieres reiniciar la aplicación? Se cerrará y volverá a abrir.')) {
+                return;
+            }
+            
+            clearLog('config');
+            log('config', '🔁 Reiniciando aplicación...');
+            log('config', '⏳ La página se recargará automáticamente en unos segundos...');
+            
+            try {
+                const response = await fetch('/api/config/restart', {
+                    method: 'POST'
+                });
+                
+                // Esperar un poco y recargar la página
+                setTimeout(() => {
+                    log('config', '🔄 Recargando página...');
+                    window.location.reload();
+                }, 3000);
+                
+            } catch (error) {
+                // Es normal que falle porque el servidor se está reiniciando
+                log('config', '🔄 Servidor reiniciándose...');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 3000);
             }
         }
         

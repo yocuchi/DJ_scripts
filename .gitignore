@@ -1,4 +1,7 @@
 .venv/
+venv/
+.venv_win/
+venv win/
 MUSIC/
 
 # Archivos sensibles (no subir a GitHub)
@@ -6,8 +9,7 @@ MUSIC/
 youtube_cookies.txt
 
 # Archivos de configuración X11 (solo para entorno local)
-setup_x11.sh
-start_gui.sh
+
 README_GUI.md
 
 # VSCode

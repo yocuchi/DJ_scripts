@@ -5,6 +5,7 @@ Módulo de gestión de base de datos SQLite para el sistema de descarga de músi
 
 import sqlite3
 import os
+import sys
 import threading
 import json
 from pathlib import Path
@@ -23,8 +24,14 @@ class MusicDatabase:
             db_path: Ruta al archivo de base de datos. Si es None, usa la ruta por defecto.
         """
         if db_path is None:
-            db_path = Path.home() / '.youtube_music.db'
-        
+            if getattr(sys, 'frozen', False):
+                # Ejecutable empaquetado (PyInstaller): base de datos junto al .exe
+                # Evita "unable to open database file" en Windows (OneDrive, permisos, etc.)
+                base_dir = Path(sys.executable).parent.resolve()
+                db_path = base_dir / 'youtube_music.db'
+            else:
+                db_path = Path.home() / '.youtube_music.db'
+
         self.db_path = Path(db_path)
         # Usar threading.local() para tener una conexión por thread
         self._local = threading.local()
@@ -181,9 +188,21 @@ class MusicDatabase:
                 
                 conn.commit()
                 return True
-            except sqlite3.IntegrityError:
+            except sqlite3.IntegrityError as e:
                 # Ya existe (video_id o file_path duplicado)
                 conn.rollback()
+                # Verificar qué causó el error
+                error_msg = str(e)
+                if 'video_id' in error_msg.lower() or 'UNIQUE constraint failed: songs.video_id' in error_msg:
+                    # Verificar si existe por video_id
+                    existing = self.get_song_by_video_id(video_id)
+                    if existing:
+                        print(f"   ⚠️  Ya existe una canción con video_id '{video_id}': {existing.get('title', 'N/A')}")
+                elif 'file_path' in error_msg.lower() or 'UNIQUE constraint failed: songs.file_path' in error_msg:
+                    # Verificar si existe por file_path
+                    existing = self.get_song_by_file_path(str(file_path))
+                    if existing:
+                        print(f"   ⚠️  Ya existe una canción con file_path '{file_path}': video_id={existing.get('video_id', 'N/A')}")
                 return False
     
     def update_song(self, video_id: str, **kwargs) -> bool:
@@ -228,6 +247,52 @@ class MusicDatabase:
             except Exception as e:
                 conn.rollback()
                 print(f"Error al actualizar canción: {e}")
+                return False
+    
+    def update_song_video_id(self, old_video_id: str, new_video_id: str, **kwargs) -> bool:
+        """
+        Actualiza el video_id de una canción y opcionalmente otros campos.
+        Útil para actualizar canciones importadas con el video_id real de YouTube.
+        
+        Args:
+            old_video_id: Video ID actual (ej: imported_xxx)
+            new_video_id: Nuevo video ID (ej: video_id real de YouTube)
+            **kwargs: Campos adicionales a actualizar
+        """
+        with self._lock:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # Construir query de actualización
+            allowed_fields = ['url', 'title', 'artist', 'year', 'genre', 'decade', 'file_path',
+                             'file_size', 'file_type', 'duration', 'thumbnail_url', 'description', 'download_source', 'bitrate_kbps']
+            
+            updates = ['video_id = ?']
+            values = [new_video_id]
+            
+            for key, value in kwargs.items():
+                if key in allowed_fields:
+                    updates.append(f"{key} = ?")
+                    values.append(value)
+            
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            values.append(old_video_id)
+            
+            query = f"UPDATE songs SET {', '.join(updates)} WHERE video_id = ?"
+            
+            try:
+                cursor.execute(query, values)
+                # También actualizar el historial si existe
+                cursor.execute('''
+                    UPDATE download_history 
+                    SET video_id = ? 
+                    WHERE video_id = ?
+                ''', (new_video_id, old_video_id))
+                conn.commit()
+                return cursor.rowcount > 0
+            except Exception as e:
+                conn.rollback()
+                print(f"Error al actualizar video_id de canción: {e}")
                 return False
     
     def get_song_by_video_id(self, video_id: str) -> Optional[Dict]:

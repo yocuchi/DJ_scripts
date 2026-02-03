@@ -1,0 +1,238 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Se activa cuando se crea un tag que empieza con 'v'
+  workflow_dispatch:  # Permite ejecutar manualmente
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }} - ${{ matrix.script }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        script:
+          - download_youtube
+          - download_quick
+          - app
+          - ide
+        exclude:
+          # Excluir combinaciones que no queremos
+          - os: macos-latest
+            script: ide  # GUI puede no funcionar bien en macOS CI
+          - os: ubuntu-latest
+            script: ide  # GUI puede no funcionar bien en Linux CI sin display
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Instalar dependencias del sistema (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libavcodec-extra
+
+      - name: Instalar dependencias del sistema (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install ffmpeg || true
+
+      - name: Instalar dependencias de Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Crear archivo .spec dinámico
+        run: |
+          python << 'PYTHON_SCRIPT'
+          import sys
+          script_name = "${{ matrix.script }}"
+          os_name = "${{ matrix.os }}"
+          
+          # Determinar el script principal
+          script_file = f"{script_name}.py"
+          
+          # Construir lista de datas como tuplas
+          datas_list = [('env_example.txt', '.')]
+          
+          if script_name in ['download_youtube', 'download_quick', 'app']:
+              datas_list.append(('youtube_cookies.txt', '.'))
+          
+          if script_name == 'app':
+              datas_list.append(('templates', 'templates'))
+              datas_list.append(('essentia', 'essentia'))
+          
+          # Construir lista de hiddenimports
+          hiddenimports = [
+              'yt_dlp', 'mutagen', 'mutagen.mp3', 'mutagen.id3',
+              'dotenv', 'requests', 'database', 'sqlite3',
+              'urllib', 'urllib.parse', 'urllib.request',
+              'flask', 'flask_cors', 'werkzeug', 'jinja2'
+          ]
+          
+          if script_name == 'ide':
+              hiddenimports.extend(['tkinter', 'PIL', 'PIL.Image', 'PIL.ImageTk'])
+          
+          # Determinar si usar consola
+          use_console = script_name not in ['app', 'ide']
+          
+          # Generar contenido del spec
+          datas_str = ',\n        '.join([repr(d) for d in datas_list])
+          hiddenimports_str = repr(hiddenimports)
+          
+          spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
+"""
+Archivo de configuración de PyInstaller generado automáticamente.
+Script: {script_file}
+Plataforma: {os_name}
+"""
+
+block_cipher = None
+
+a = Analysis(
+    ['{script_file}'],
+    pathex=[],
+    binaries=[],
+    datas=[
+        {datas_str}
+    ],
+    hiddenimports={hiddenimports_str},
+    hookspath=[],
+    hooksconfig={{}},
+    runtime_hooks=[],
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='DJ_CUCHI_{script_name}',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console={str(use_console).lower()},
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=None,
+)
+'''
+          with open('build_temp.spec', 'w', encoding='utf-8') as f:
+              f.write(spec_content)
+          print(f"✓ Archivo .spec creado para {script_file}")
+          PYTHON_SCRIPT
+
+      - name: Compilar con PyInstaller
+        run: |
+          pyinstaller --clean --noconfirm build_temp.spec
+
+      - name: Preparar artefactos (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release_artifacts | Out-Null
+          Copy-Item "dist/DJ_CUCHI_${{ matrix.script }}.exe" "release_artifacts/"
+          "DJ_CUCHI_${{ matrix.script }}.exe" | Out-File -FilePath "release_artifacts/filename.txt" -Encoding utf8
+          "${{ matrix.os }}" | Out-File -FilePath "release_artifacts/platform.txt" -Encoding utf8
+          "${{ matrix.script }}" | Out-File -FilePath "release_artifacts/script.txt" -Encoding utf8
+
+      - name: Preparar artefactos (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p release_artifacts
+          cp dist/DJ_CUCHI_${{ matrix.script }} release_artifacts/
+          echo "DJ_CUCHI_${{ matrix.script }}" > release_artifacts/filename.txt
+          echo "${{ matrix.os }}" > release_artifacts/platform.txt
+          echo "${{ matrix.script }}" > release_artifacts/script.txt
+
+      - name: Subir artefactos
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.script }}-${{ matrix.os }}
+          path: release_artifacts/*
+          retention-days: 30
+
+  create-release:
+    name: Crear Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Descargar todos los artefactos
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Preparar archivos para release
+        shell: bash
+        run: |
+          mkdir -p release_files
+          
+          # Procesar cada artefacto
+          for artifact_dir in artifacts/*/; do
+            if [ -d "$artifact_dir" ]; then
+              platform=$(cat "$artifact_dir/platform.txt")
+              script=$(cat "$artifact_dir/script.txt")
+              filename=$(cat "$artifact_dir/filename.txt")
+              
+              # Renombrar con información de plataforma
+              if [ "$platform" == "windows-latest" ]; then
+                new_name="DJ_CUCHI_${script}_Windows.exe"
+              elif [ "$platform" == "macos-latest" ]; then
+                new_name="DJ_CUCHI_${script}_macOS"
+                chmod +x "$artifact_dir/$filename"
+              else
+                new_name="DJ_CUCHI_${script}_Linux"
+                chmod +x "$artifact_dir/$filename"
+              fi
+              
+              cp "$artifact_dir/$filename" "release_files/$new_name"
+              echo "✓ Preparado: $new_name"
+            fi
+          done
+          
+          # Crear checksums
+          cd release_files
+          sha256sum * > checksums.txt
+          echo "✓ Checksums creados"
+
+      - name: Crear Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release_files/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

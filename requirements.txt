@@ -5,9 +5,8 @@ requests>=2.31.0
 flask>=3.0.0
 flask-cors>=4.0.0
 
-# Dependencias opcionales para análisis de audio avanzado
+# Dependencias opcionales para análisis de audio avanzado (solo Linux/macOS)
 # Essentia permite clasificación de género mediante análisis de audio
-# Instalar con: pip install essentia
-# Nota: Essentia puede requerir dependencias adicionales del sistema
-essentia>=2.1b6.dev1389  # Descomentar si quieres instalar Essentia
+# En Windows no se instala (pip ignora esta línea si sys_platform == "win32")
+essentia>=2.1b5; sys_platform != "win32"
 
