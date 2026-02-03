@@ -306,7 +306,8 @@ MUSIC_FOLDER/
 
 ## Scripts Disponibles
 
-- `ide.py`: **Interfaz gráfica (IDE)** - La forma más cómoda de usar el programa
+- `ide.py`: **Interfaz gráfica (IDE)** — La forma más cómoda de usar el programa
+- `app.py`: **Aplicación web Flask** — Interfaz web con soporte para videos embebidos
 - `download_youtube.py`: Script completo con extracción de metadatos y verificación de duplicados
 - `download_quick.py`: Script rápido para descargas simples
 - `query_db.py`: Script para consultar y buscar en la base de datos
@@ -389,6 +390,14 @@ Si alguno de estos comandos no funciona, vuelve a la sección de [Instalación d
 - Los archivos se descargan en la mejor calidad disponible
 - Los tags ID3 incluyen: título, artista, año, género y portada del video
 - El script crea automáticamente la carpeta de música si no existe
+
+## Documentación adicional
+
+- [Releases y ejecutables](README_RELEASES.md) — Descargar ejecutables precompilados para Windows, Linux y macOS
+- [Emojis en la GUI](README_EMOJIS.md) — Cómo ver emojis correctamente en WSL/Linux
+- [Arquitectura: separación IDE y procesos](README_SEPARACION.md) — Cómo funciona la separación entre interfaz y procesos de descarga
+- [Guía de releases](RELEASE_GUIDE.md) — Cómo crear una nueva release (para mantenedores)
+- [Instrucciones para empaquetar la aplicación](INSTRUCCIONES_EJECUTABLE.md) — Empaquetar la aplicación Flask con PyInstaller
 
 ## Licencia
 

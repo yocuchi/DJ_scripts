@@ -112,7 +112,6 @@ direct_download_tasks = {}
 @app.route('/')
 def index():
     """Página principal."""
-    print(f"[{time.strftime('%H:%M:%S')}] 📄 Petición GET / - Sirviendo página principal")
     return render_template('index.html')
 
 

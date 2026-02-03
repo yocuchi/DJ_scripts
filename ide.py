@@ -22,7 +22,6 @@ if not os.getenv('DISPLAY'):
     else:
         # Intentar con IP de Windows (para VcXsrv/X410)
         try:
-            import subprocess
             result = subprocess.run(['ip', 'route'], capture_output=True, text=True, timeout=2)
             for line in result.stdout.split('\n'):
                 if 'default' in line:
