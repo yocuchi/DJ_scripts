@@ -1152,45 +1152,74 @@ def get_video_info(url: str, log_callback=None) -> Dict:
     # Añadir cookies si están disponibles
     cookies_file = get_cookies_file()
     
-    # Opciones más permisivas desde el inicio para evitar errores de formato
-    # No especificamos formato porque solo necesitamos información, no descargar
-    ydl_opts = {
-        'quiet': True,  # Silenciar para evitar spam en consola
-        'no_warnings': True,  # Silenciar warnings para limpieza
-        'extract_flat': False,
-        'skip_download': True,  # Asegurar que no se descarga nada
-        'ignoreerrors': True,  # Ignorar errores de formato para obtener lo que se pueda
-        'no_check_certificate': False,
-    }
+    # Función auxiliar: extrae información y captura stderr para poder loguearlo
+    def extract_with_captured_stderr(ydl_instance, url):
+        """Extrae información y devuelve (info, error, stderr_text)."""
+        import sys
+        import io
+        old_stderr = sys.stderr
+        buf = io.StringIO()
+        sys.stderr = buf
+        try:
+            info = ydl_instance.extract_info(url, download=False)
+            return info, None, buf.getvalue()
+        except Exception as e:
+            return None, e, buf.getvalue()
+        finally:
+            sys.stderr = old_stderr
     
+    # 1) Intentar primero con extract_flat (sin selector de formato) para evitar "Requested format is not available"
+    #    en lyric videos, Music, etc. Solo obtenemos id, title, url; el resto se rellena por defecto.
+    # Cliente Android a veces evita 403 de YouTube (issue yt-dlp #12482, #14680)
+    youtube_extractor_args = {'youtube': {'player_client': ['android']}}
+    opts_flat = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': True,
+        'skip_download': True,
+        'ignoreerrors': True,
+        'extractor_args': youtube_extractor_args,
+    }
     if cookies_file:
-        ydl_opts['cookiefile'] = cookies_file
+        opts_flat['cookiefile'] = cookies_file
         log(f"   📋 Usando cookies: {cookies_file}")
     else:
         log(f"   ⚠️  No se encontraron cookies")
     
-    # Función auxiliar para suprimir stderr durante la extracción
-    def extract_with_suppressed_stderr(ydl_instance, url):
-        """Extrae información suprimiendo stderr para evitar mensajes de error directos."""
-        import sys
-        import io
-        old_stderr = sys.stderr
-        sys.stderr = io.StringIO()
-        
-        try:
-            info = ydl_instance.extract_info(url, download=False)
-            return info, None
-        except Exception as e:
-            return None, e
-        finally:
-            # Restaurar stderr
-            stderr_output = sys.stderr.getvalue()
-            sys.stderr = old_stderr
+    log(f"   🔄 Intentando primero modo básico (extract_flat, sin formato)...")
+    with yt_dlp.YoutubeDL(opts_flat) as ydl_flat:
+        info_flat, err_flat, _ = extract_with_captured_stderr(ydl_flat, url)
+        if info_flat and info_flat.get('id') and info_flat.get('title'):
+            elapsed = time.time() - start_time
+            log(f"   ✅ Información básica obtenida en {elapsed:.2f}s (modo plano)")
+            log(f"      Video ID: {info_flat.get('id')}")
+            log(f"      Título: {info_flat.get('title')}")
+            # Rellenar campos que extract_flat puede no devolver (el resto del código usa .get() con defaults)
+            if not info_flat.get('description'):
+                info_flat['description'] = ''
+            return info_flat
     
+    if err_flat:
+        log(f"   📋 Modo básico falló: {err_flat}")
+    
+    # 2) Intentar extracción completa con formato (más metadatos: descripción, duración, thumbnail, etc.)
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': False,
+        'skip_download': True,
+        'ignoreerrors': True,
+        'no_check_certificate': False,
+        'format': 'bestaudio/best/worst',
+        'extractor_args': youtube_extractor_args,
+    }
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
+    
+    log(f"   🔄 Extrayendo información completa (formato: bestaudio/best/worst)...")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
-            log(f"   🔄 Extrayendo información...")
-            info, error = extract_with_suppressed_stderr(ydl, url)
+            info, error, stderr_capture = extract_with_captured_stderr(ydl, url)
             
             # Si obtuvimos información, retornarla
             if info:
@@ -1201,70 +1230,119 @@ def get_video_info(url: str, log_callback=None) -> Dict:
                 log(f"      Duración: {info.get('duration', 'N/A')} segundos")
                 return info
             
-            # Si hubo un error, lanzarlo para que se maneje en el except
+            # Si hubo un error, loguear stderr de yt-dlp y lanzar
             if error:
+                if stderr_capture and stderr_capture.strip():
+                    log(f"   📋 stderr de yt-dlp:")
+                    for line in stderr_capture.strip().split('\n'):
+                        log(f"      {line}")
+                log(f"   📋 Excepción: {type(error).__name__}: {error}")
                 raise error
             
-            # Si no hay info ni error, intentar métodos alternativos
+            # Si no hay info ni error, intentar métodos alternativos (extract_flat)
             elapsed = time.time() - start_time
             log(f"   ⚠️  No se obtuvo información del video después de {elapsed:.2f}s")
+            if stderr_capture and stderr_capture.strip():
+                log(f"   📋 stderr de yt-dlp:")
+                for line in stderr_capture.strip().split('\n'):
+                    log(f"      {line}")
             log(f"   🔄 Intentando métodos alternativos...")
+            # Ejecutar los mismos reintentos que en el except (extract_flat con/sin cookies)
+            try:
+                ydl_opts_retry = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'extract_flat': True,
+                    'skip_download': True,
+                    'ignoreerrors': True,
+                    'extractor_args': youtube_extractor_args,
+                }
+                if cookies_file:
+                    ydl_opts_retry['cookiefile'] = cookies_file
+                log(f"   🔄 Reintento 1/2: extract_flat=True...")
+                with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl_retry:
+                    info, err_retry, stderr_retry = extract_with_captured_stderr(ydl_retry, url)
+                    if info and info.get('id') and info.get('title'):
+                        if not info.get('description'):
+                            info['description'] = ''
+                        log(f"   ✅ Información básica obtenida (modo plano)")
+                        return info
+                log(f"   🔄 Reintento 2/2: SIN cookies...")
+                ydl_opts_retry_2 = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'extract_flat': True,
+                    'skip_download': True,
+                    'ignoreerrors': True,
+                    'extractor_args': youtube_extractor_args,
+                }
+                with yt_dlp.YoutubeDL(ydl_opts_retry_2) as ydl_retry_2:
+                    info, _, _ = extract_with_captured_stderr(ydl_retry_2, url)
+                    if info and info.get('id') and info.get('title'):
+                        if not info.get('description'):
+                            info['description'] = ''
+                        log(f"   ✅ Información básica obtenida (sin cookies)")
+                        return info
+            except Exception:
+                pass
+            return {}
             
         except yt_dlp.utils.DownloadError as e:
             error_str = str(e)
+            log(f"   📋 Error capturado: {error_str}")
             
-            # Mostrar más detalles del error
             if 'Requested format is not available' in error_str:
-                # No mostramos error rojo todavía porque vamos a intentar recuperar
-                # log(f"   ❌ Error de descarga: {error_str}") 
-                
                 log(f"   ℹ️  Formato preferido no disponible, intentando métodos alternativos...")
-                # log(f"   📋 Detalles del error:")
-                # log(f"      - El formato solicitado no está disponible para este video")
-                log(f"      - URL intentada: {url}")
-                log(f"      - Esto puede ocurrir si el video está restringido o eliminado")
-                log(f"      - Intentando obtener información básica sin formato específico...")
+                log(f"      URL: {url}")
                 
-                # Intentar con opciones más permisivas
+                # Intentar con opciones más permisivas (extract_flat, sin elegir formato)
                 try:
                     ydl_opts_retry = {
-                        'js_runtimes': {'node': {}, 'nodejs': {}},
-                        'quiet': True,     # Silenciar salida para no alarmar al usuario con errores internos de yt-dlp
+                        'quiet': True,
                         'no_warnings': True,
-                        'extract_flat': True,  # Modo plano, menos información pero más compatible
+                        'extract_flat': True,  # Modo plano, no requiere formato
                         'skip_download': True,
-                        'ignoreerrors': True,  # Ignorar errores de formato/descarga para obtener lo que se pueda
+                        'ignoreerrors': True,
                     }
                     if cookies_file:
                         ydl_opts_retry['cookiefile'] = cookies_file
                     
-                    log(f"   🔄 Reintentando con extract_flat=True y ignoreerrors=True...")
+                    log(f"   🔄 Reintento 1/2: extract_flat=True (sin selector de formato)...")
                     with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl_retry:
-                        info, _ = extract_with_suppressed_stderr(ydl_retry, url)
+                        info, err_retry, stderr_retry = extract_with_captured_stderr(ydl_retry, url)
                         if info:
                             log(f"   ✅ Información básica obtenida (modo plano)")
                             return info
+                        if err_retry:
+                            log(f"   ❌ Reintento 1 falló: {err_retry}")
+                        if stderr_retry and stderr_retry.strip():
+                            for line in stderr_retry.strip().split('\n'):
+                                log(f"      [yt-dlp] {line}")
                 except Exception as e2:
-                    log(f"   ❌ Error en primer reintento: {e2}")
+                    log(f"   ❌ Reintento 1 excepción: {type(e2).__name__}: {e2}")
 
-                # Segundo reintento: SIN COOKIES (a veces las cookies causan problemas de restricción o sesión)
+                # Segundo reintento: SIN COOKIES
                 try:
                     ydl_opts_retry_2 = {
-                        'js_runtimes': {'node': {}, 'nodejs': {}},
                         'quiet': True,
                         'no_warnings': True,
                         'extract_flat': True,
                         'skip_download': True,
                         'ignoreerrors': True,
                     }
-                    log(f"   🔄 Reintentando SIN cookies...")
+                    log(f"   🔄 Reintento 2/2: SIN cookies...")
                     with yt_dlp.YoutubeDL(ydl_opts_retry_2) as ydl_retry_2:
-                        info, _ = extract_with_suppressed_stderr(ydl_retry_2, url)
+                        info, err_retry2, stderr_retry2 = extract_with_captured_stderr(ydl_retry_2, url)
                         if info:
                             log(f"   ✅ Información básica obtenida (sin cookies)")
                             return info
+                        if err_retry2:
+                            log(f"   ❌ Reintento 2 falló: {err_retry2}")
+                        if stderr_retry2 and stderr_retry2.strip():
+                            for line in stderr_retry2.strip().split('\n'):
+                                log(f"      [yt-dlp] {line}")
                 except Exception as e3:
-                    log(f"   ❌ Error en segundo reintento: {e3}")
+                    log(f"   ❌ Reintento 2 excepción: {type(e3).__name__}: {e3}")
             
             elif 'Video unavailable' in error_str or 'not available' in error_str:
                 log(f"   ⚠️  Video no disponible: {url}")
@@ -1396,13 +1474,13 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
     cookies_file = get_cookies_file()
     
     # Lista de formatos a intentar en orden de preferencia
-    # Empezamos con formatos más flexibles para evitar errores de formato no disponible
+    # Empezamos con cadenas que ya incluyen fallbacks para vídeos con formatos limitados (lyric videos, Music, etc.)
     format_attempts = [
-        'best',  # Cualquier formato disponible (más flexible)
-        'bestaudio/best',  # Mejor audio disponible
-        QUALITY,  # Formato preferido original (puede fallar si no está disponible)
-        'best[height<=720]/best',  # Video hasta 720p o mejor disponible
-        'worst[ext=mp4]/worst',  # Cualquier formato mp4 disponible
+        'bestaudio/best/worst',  # Máximo fallback en un solo intento
+        'bestaudio/best',
+        'best/worst',
+        'best[height<=720]/best',
+        'worst[ext=mp4]/worst',
     ]
     
     # Crear hook de progreso si se proporciona un callback
@@ -1418,6 +1496,8 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
                 progress_callback(d)
         progress_hooks = [progress_hook]
     
+    # Cliente Android puede evitar HTTP 403 con YouTube
+    youtube_extractor_args = {'youtube': {'player_client': ['android']}}
     base_opts = {
         'outtmpl': output_path,
         'postprocessors': [{
@@ -1428,6 +1508,7 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
         'quiet': True,  # Silenciar para evitar warnings innecesarios
         'no_warnings': False,  # Permitir warnings importantes pero silenciar spam
         'progress_hooks': progress_hooks,
+        'extractor_args': youtube_extractor_args,
     }
     
     # Intentar primero con cookies (si están disponibles), luego sin cookies
@@ -1452,30 +1533,35 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
             if cookie_file:
                 ydl_opts['cookiefile'] = cookie_file
             
-            if i > 0:
-                print(f"⚠️  Intentando con formato alternativo ({i}/{len(format_attempts)-1}): {fmt}")
+            cookies_label = "con cookies" if cookie_file else "sin cookies"
+            print(f"   📥 Intentando formato ({i+1}/{len(format_attempts)}): {fmt} [{cookies_label}]")
             
-            # Suprimir stderr solo para errores de formato durante la descarga
+            # Suprimir stderr durante la descarga pero capturarlo para logs si falla
             import sys
             import io
             old_stderr = sys.stderr
-            sys.stderr = io.StringIO()
+            stderr_buf = io.StringIO()
+            sys.stderr = stderr_buf
             
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
-                sys.stderr = old_stderr  # Restaurar antes de return
+                sys.stderr = old_stderr
                 return True
             except Exception as download_error:
-                stderr_output = sys.stderr.getvalue()
-                sys.stderr = old_stderr  # Restaurar stderr
+                stderr_output = stderr_buf.getvalue()
+                sys.stderr = old_stderr
                 
                 last_error = download_error
                 error_str = str(download_error)
+                print(f"   ❌ Formato '{fmt}' falló: {error_str}")
+                if stderr_output and stderr_output.strip():
+                    for line in stderr_output.strip().split('\n'):
+                        print(f"      [yt-dlp] {line}")
                 
-                # Si es un error de formato, continuar con el siguiente formato sin mostrar el error
+                # Si es un error de formato, continuar con el siguiente formato
                 if 'Requested format is not available' in error_str or 'Only images are available' in error_str:
-                    continue  # Intentar siguiente formato (ya suprimimos el stderr)
+                    continue
                 # Si es un error de video no disponible, puede ser por cookies, intentar sin cookies
                 elif 'Video unavailable' in error_str or 'Private video' in error_str:
                     if cookie_file and len(cookie_attempts) > 1:

@@ -24,6 +24,14 @@ try {
     exit 1
 }
 
+# Preservar .env en dist si existe (no borrarlo)
+$envBackup = ".env.dist.backup"
+$distEnvPath = Join-Path "dist" ".env"
+if (Test-Path $distEnvPath) {
+    Write-Host "Preservando .env existente en dist..." -ForegroundColor Yellow
+    Copy-Item -Path $distEnvPath -Destination $envBackup -Force
+}
+
 # Limpiar builds anteriores
 Write-Host "Limpiando builds anteriores..." -ForegroundColor Yellow
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
@@ -44,6 +52,13 @@ $exeName = "DJ_CUCHI_app.exe"
 $exePath = Join-Path "dist" $exeName
 
 if (Test-Path $exePath) {
+    # Restaurar .env en dist si se había preservado
+    if (Test-Path $envBackup) {
+        $distEnvPath = Join-Path "dist" ".env"
+        Copy-Item -Path $envBackup -Destination $distEnvPath -Force
+        Remove-Item $envBackup -Force
+        Write-Host ".env restaurado en dist." -ForegroundColor Green
+    }
     Write-Host ""
     Write-Host "Ejecutable creado correctamente." -ForegroundColor Green
     Write-Host ""

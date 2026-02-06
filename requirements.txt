@@ -1,4 +1,5 @@
-yt-dlp>=2023.12.30
+# [default] incluye yt-dlp-ejs (necesario para YouTube desde 2025; evita 403)
+yt-dlp[default]>=2023.12.30
 mutagen>=1.47.0
 python-dotenv>=1.0.0
 requests>=2.31.0

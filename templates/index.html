@@ -107,6 +107,12 @@
             font-family: 'Courier New', monospace;
         }
         
+        .control-group input[readonly] {
+            background-color: #e9ecef;
+            color: #495057;
+            cursor: default;
+        }
+        
         .btn {
             padding: 10px 20px;
             border: none;
@@ -614,6 +620,10 @@
         <div id="config" class="tab-content">
             <h2>⚙️ Configuración</h2>
             <div class="control-group">
+                <label>Archivo .env:</label>
+                <input type="text" id="config-env-path" readonly placeholder="Ruta del fichero .env" title="Ruta de solo lectura">
+            </div>
+            <div class="control-group">
                 <label>Carpeta de Música:</label>
                 <input type="text" id="config-music-folder" placeholder="Ruta de la carpeta de música">
                 <button class="btn btn-primary" onclick="browseMusicFolder()">📂 Seleccionar</button>
@@ -626,6 +636,12 @@
             <div class="control-group">
                 <label>Last.fm API Key:</label>
                 <input type="text" id="config-lastfm-key" placeholder="API Key de Last.fm">
+            </div>
+            <div style="margin-top: 20px; padding: 15px; background: #e8f4fd; border-radius: 10px;">
+                <h3>📦 yt-dlp</h3>
+                <p style="margin: 10px 0;">Versión instalada: <strong id="config-ytdlp-version">—</strong></p>
+                <button class="btn btn-primary" onclick="updateYtDlp()" id="config-ytdlp-update-btn">🔄 Forzar actualización</button>
+                <span id="config-ytdlp-status" style="margin-left: 10px;"></span>
             </div>
             <div class="control-group">
                 <button class="btn btn-success" onclick="saveConfig()">💾 Guardar Configuración</button>
@@ -785,7 +801,8 @@
                 
                 const data = await response.json();
                 if (data.success) {
-                    log('download', '✅ Descarga rápida iniciada');
+                    log('download', '✅ Descarga rápida iniciada. Monitoreando...');
+                    monitorDirectDownload(data.task_id);
                 } else {
                     log('download', `❌ Error: ${data.error}`);
                 }
@@ -837,9 +854,11 @@
                     } else if (data.status && data.status.status === 'error') {
                         clearInterval(interval);
                         log('download', `❌ Error: ${data.status.error}`);
+                        if (data.status.error_detail) log('download', `📋 Detalle:\n${data.status.error_detail}`);
                     } else if (data.status === 'error') {
                         clearInterval(interval);
                         log('download', `❌ Error: ${data.error}`);
+                        if (data.error_detail) log('download', `📋 Detalle:\n${data.error_detail}`);
                     } else if (data.logs) {
                         data.logs.forEach(logMsg => {
                             if (!document.getElementById('download-log').textContent.includes(logMsg)) {
@@ -1731,6 +1750,7 @@
                 const data = await response.json();
                 
                 if (data.success) {
+                    document.getElementById('config-env-path').value = data.config.ENV_PATH || '';
                     document.getElementById('config-music-folder').value = data.config.MUSIC_FOLDER || '';
                     document.getElementById('config-db-path').value = data.config.DB_PATH || '';
                     document.getElementById('config-lastfm-key').value = data.config.LASTFM_API_KEY || '';
@@ -1746,6 +1766,54 @@
                 }
                 console.error('Error completo:', error);
             }
+            loadYtDlpVersion();
+        }
+        
+        async function loadYtDlpVersion() {
+            const el = document.getElementById('config-ytdlp-version');
+            const statusEl = document.getElementById('config-ytdlp-status');
+            if (statusEl) statusEl.textContent = '';
+            try {
+                const response = await fetch('/api/config/yt-dlp-version');
+                const data = await response.json();
+                if (data.success && data.version) {
+                    el.textContent = data.version;
+                } else {
+                    el.textContent = data.error || 'desconocida';
+                }
+            } catch (e) {
+                el.textContent = '—';
+            }
+        }
+        
+        async function updateYtDlp() {
+            const btn = document.getElementById('config-ytdlp-update-btn');
+            const statusEl = document.getElementById('config-ytdlp-status');
+            if (!btn || !statusEl) return;
+            btn.disabled = true;
+            statusEl.textContent = 'Actualizando...';
+            statusEl.style.color = '';
+            try {
+                const response = await fetch('/api/config/yt-dlp-update', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    if (data.version) {
+                        document.getElementById('config-ytdlp-version').textContent = data.version;
+                    }
+                    statusEl.textContent = '✅ Actualizado';
+                    statusEl.style.color = 'green';
+                    log('config', '✅ yt-dlp actualizado correctamente' + (data.version ? ` (${data.version})` : ''));
+                } else {
+                    statusEl.textContent = '❌ Error';
+                    statusEl.style.color = 'red';
+                    log('config', '❌ Error al actualizar yt-dlp: ' + (data.error || ''));
+                }
+            } catch (e) {
+                statusEl.textContent = '❌ Error';
+                statusEl.style.color = 'red';
+                log('config', '❌ Error: ' + e.message);
+            }
+            btn.disabled = false;
         }
         
         // ========== EXPLORADOR DE ARCHIVOS ==========

@@ -28,8 +28,15 @@ except ImportError:
     print("❌ Flask no está instalado. Instala con: pip install flask flask-cors")
     exit(1)
 
-# Cargar variables de entorno antes de resolver la ruta de la BD
-load_dotenv()
+def _get_config_dir() -> Path:
+    """Directorio donde se guarda el .env. Fijo: junto al .exe si está empaquetado, sino junto a app.py."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent.resolve()
+    return Path(__file__).parent.resolve()
+
+
+# Cargar variables de entorno antes de resolver la ruta de la BD (siempre desde la misma ubicación)
+load_dotenv(_get_config_dir() / '.env')
 
 # Resolver ruta de la base de datos (si falla la por defecto, preguntar al usuario)
 from database import MusicDatabase, get_or_choose_db_path
@@ -421,6 +428,7 @@ def get_download_status(task_id):
         return jsonify({
             'status': task_status.get('status', 'idle'),
             'error': task_status.get('error'),
+            'error_detail': task_status.get('error_detail'),
             'file': task_status.get('file')
         })
     
@@ -469,9 +477,17 @@ def download_direct():
             download_status[video_id] = {'status': 'downloading'}
             download_logs[video_id] = []
             
-            video_info = get_video_info(url)
+            try:
+                video_info = get_video_info(url)
+            except Exception as e_info:
+                import traceback
+                tb = traceback.format_exc()
+                err_msg = f"No se pudo obtener información del video: {e_info}"
+                direct_download_tasks[task_id] = {'status': 'error', 'error': err_msg, 'error_detail': tb}
+                download_logs[video_id].append(f"[ERROR] {err_msg}\n{tb}")
+                return
             if not video_info:
-                direct_download_tasks[task_id] = {'status': 'error', 'error': 'No se pudo obtener información del video'}
+                direct_download_tasks[task_id] = {'status': 'error', 'error': 'No se pudo obtener información del video (get_video_info devolvió vacío)'}
                 return
             
             title = video_info.get('title', '')
@@ -516,13 +532,14 @@ def download_direct():
                 direct_download_tasks[task_id] = {'status': 'completed', 'file': str(mp3_file)}
                 download_status[video_id] = {'status': 'completed', 'file': str(mp3_file)}
             else:
-                direct_download_tasks[task_id] = {'status': 'error', 'error': 'Error en la descarga'}
+                direct_download_tasks[task_id] = {'status': 'error', 'error': 'Error en la descarga (download_audio devolvió False)'}
                 
         except Exception as e:
-            direct_download_tasks[task_id] = {'status': 'error', 'error': str(e)}
             import traceback
+            tb = traceback.format_exc()
+            direct_download_tasks[task_id] = {'status': 'error', 'error': str(e), 'error_detail': tb}
             if video_id:
-                download_logs[video_id].append(traceback.format_exc())
+                download_logs[video_id].append(tb)
     
     threading.Thread(target=download_thread, daemon=True).start()
     return jsonify({'success': True, 'task_id': task_id, 'message': 'Descarga iniciada'})
@@ -530,21 +547,33 @@ def download_direct():
 
 @app.route('/api/download/quick', methods=['POST'])
 def download_quick_endpoint():
-    """Descarga rápida sin metadatos avanzados."""
+    """Descarga rápida sin metadatos avanzados. Devuelve task_id para poder consultar estado y errores."""
     data = request.json
     url = data.get('url')
     
     if not url:
         return jsonify({'success': False, 'error': 'Faltan parámetros'}), 400
     
+    task_id = str(uuid.uuid4())
+    direct_download_tasks[task_id] = {'status': 'downloading', 'url': url}
+    
     def quick_download_thread():
+        import traceback
         try:
             download_quick(url)
-        except Exception as e:
-            print(f"Error en descarga rápida: {e}")
+            direct_download_tasks[task_id] = {'status': 'completed', 'file': ''}
+        except BaseException as e:
+            tb = traceback.format_exc()
+            err_msg = str(e)
+            direct_download_tasks[task_id] = {
+                'status': 'error',
+                'error': err_msg,
+                'error_detail': tb
+            }
+            print(f"[{time.strftime('%H:%M:%S')}] ❌ Error en descarga rápida: {err_msg}\n{tb}")
     
     threading.Thread(target=quick_download_thread, daemon=True).start()
-    return jsonify({'success': True, 'message': 'Descarga rápida iniciada'})
+    return jsonify({'success': True, 'task_id': task_id, 'message': 'Descarga rápida iniciada'})
 
 
 @app.route('/api/video/info', methods=['POST'])
@@ -865,9 +894,7 @@ def get_config():
     """Obtiene la configuración actual."""
     try:
         config = {}
-        # Usar la ruta absoluta del directorio del script
-        script_dir = Path(__file__).parent
-        env_path = script_dir / '.env'
+        env_path = _get_config_dir() / '.env'
         
         if env_path.exists():
             with open(env_path, 'r', encoding='utf-8') as f:
@@ -880,9 +907,9 @@ def get_config():
                             value = parts[1].strip()
                             # Remover comillas si las hay
                             if value.startswith('"') and value.endswith('"'):
-                                value = value[1:-1]
+                                value = value[1:-1].replace('\\\\', '\\')
                             elif value.startswith("'") and value.endswith("'"):
-                                value = value[1:-1]
+                                value = value[1:-1].replace('\\\\', '\\')
                             config[key] = value
         
         # Obtener la ruta real de la base de datos (por defecto si no está configurada)
@@ -894,6 +921,7 @@ def get_config():
         return jsonify({
             'success': True,
             'config': {
+                'ENV_PATH': str(env_path.resolve()),
                 'MUSIC_FOLDER': config.get('MUSIC_FOLDER', ''),
                 'DB_PATH': db_path_config,
                 'LASTFM_API_KEY': config.get('LASTFM_API_KEY', '')
@@ -905,15 +933,70 @@ def get_config():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/config/yt-dlp-version', methods=['GET'])
+def get_yt_dlp_version():
+    """Devuelve la versión instalada de yt-dlp."""
+    try:
+        import yt_dlp
+        version = getattr(yt_dlp.version, '__version__', 'desconocida')
+        return jsonify({'success': True, 'version': version})
+    except ImportError:
+        return jsonify({'success': False, 'error': 'yt-dlp no está instalado', 'version': None}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'version': None}), 200
+
+
+@app.route('/api/config/yt-dlp-update', methods=['POST'])
+def update_yt_dlp():
+    """Fuerza la actualización de yt-dlp con pip install -U yt-dlp y devuelve la nueva versión."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', '-U', 'yt-dlp'],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or '').strip() or f'Código de salida: {result.returncode}'
+            return jsonify({'success': False, 'error': err})
+        # Obtener la versión actual después de actualizar (subproceso para ver el módulo actualizado)
+        ver_proc = subprocess.run(
+            [sys.executable, '-c', 'import yt_dlp; print(yt_dlp.version.__version__)'],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        new_version = ver_proc.stdout.strip() if ver_proc.returncode == 0 else None
+        return jsonify({
+            'success': True,
+            'message': 'yt-dlp actualizado correctamente',
+            'version': new_version,
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'error': 'Tiempo de espera agotado al actualizar'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+def _env_value_for_file(key: str, value: str) -> str:
+    """Formatea un valor para .env: rutas con backslashes se guardan entre comillas para evitar corrupción."""
+    if not value:
+        return value
+    # DB_PATH y MUSIC_FOLDER pueden tener rutas Windows con \; sin comillas load_dotenv corrompe la ruta
+    if key in ('DB_PATH', 'MUSIC_FOLDER') and '\\' in value:
+        escaped = value.replace('\\', '\\\\').replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
+
+
 @app.route('/api/config', methods=['POST'])
 def save_config_endpoint():
     """Guarda la configuración."""
     data = request.json
     
     try:
-        # Usar la ruta absoluta del directorio del script
-        script_dir = Path(__file__).parent
-        env_path = script_dir / '.env'
+        env_path = _get_config_dir() / '.env'
         lines = []
         
         if env_path.exists():
@@ -928,7 +1011,7 @@ def save_config_endpoint():
             if stripped and not stripped.startswith('#') and '=' in stripped:
                 key = stripped.split('=', 1)[0].strip()
                 if key in data:
-                    new_lines.append(f"{key}={data[key]}\n")
+                    new_lines.append(f"{key}={_env_value_for_file(key, data[key])}\n")
                     updated_keys.add(key)
                 else:
                     new_lines.append(line)
@@ -939,7 +1022,7 @@ def save_config_endpoint():
             if key not in updated_keys and value:
                 if new_lines and not new_lines[-1].endswith('\n'):
                     new_lines.append('\n')
-                new_lines.append(f"{key}={value}\n")
+                new_lines.append(f"{key}={_env_value_for_file(key, value)}\n")
         
         with open(env_path, 'w', encoding='utf-8') as f:
             f.writelines(new_lines)
@@ -961,8 +1044,8 @@ def reload_config():
         if db:
             db.close()
         
-        # Recargar variables de entorno
-        load_dotenv(override=True)
+        # Recargar variables de entorno desde el mismo .env (junto al .exe o a app.py)
+        load_dotenv(_get_config_dir() / '.env', override=True)
         
         # Obtener nuevas rutas
         new_db_path = os.getenv('DB_PATH', None)
@@ -979,12 +1062,15 @@ def reload_config():
         print(f"   📁 Carpeta de música: {MUSIC_FOLDER}")
         print(f"   🗄️  Base de datos: {DB_PATH or 'Por defecto'}")
         
+        # Devolver la ruta real que está usando la BD (p. ej. resuelta/normalizada)
+        db_path_display = str(db.db_path) if db else (DB_PATH or '')
+
         return jsonify({
             'success': True,
             'message': 'Configuración recargada',
             'config': {
                 'MUSIC_FOLDER': MUSIC_FOLDER,
-                'DB_PATH': DB_PATH or ''
+                'DB_PATH': db_path_display
             }
         })
     except Exception as e:
@@ -1140,10 +1226,38 @@ def browse_filesystem():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _update_yt_dlp_in_background():
+    """Intenta actualizar yt-dlp a la última versión en segundo plano (no bloquea el arranque)."""
+    import subprocess
+    try:
+        print("🔄 Comprobando actualización de yt-dlp...")
+        result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', '-U', 'yt-dlp'],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            if 'Successfully installed' in (result.stdout or '') or 'already up-to-date' in (result.stdout or ''):
+                print("✅ yt-dlp actualizado o ya está al día")
+            else:
+                print("✅ yt-dlp: comprobación completada")
+        else:
+            # No mostrar error al usuario: puede ser red, permisos, etc.
+            pass
+    except subprocess.TimeoutExpired:
+        pass
+    except Exception:
+        pass
+
+
 if __name__ == '__main__':
     # Crear directorio de templates si no existe
     templates_dir = Path(__file__).parent / 'templates'
     templates_dir.mkdir(exist_ok=True)
+    
+    # Actualizar yt-dlp en segundo plano para estar siempre al día con YouTube
+    threading.Thread(target=_update_yt_dlp_in_background, daemon=True).start()
     
     # Precargar modelo TensorFlow/CUDA en background (no bloquea el arranque)
     if TF_CLASSIFIER_AVAILABLE:
