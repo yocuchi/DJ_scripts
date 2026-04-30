@@ -113,9 +113,9 @@ jobs:
           # Procesar cada artefacto
           for artifact_dir in artifacts/*/; do
             if [ -d "$artifact_dir" ]; then
-              platform=$(cat "$artifact_dir/platform.txt")
-              script=$(cat "$artifact_dir/script.txt")
-              filename=$(cat "$artifact_dir/filename.txt")
+              platform=$(cat "$artifact_dir/platform.txt" | tr -d '\r')
+              script=$(cat "$artifact_dir/script.txt" | tr -d '\r')
+              filename=$(cat "$artifact_dir/filename.txt" | tr -d '\r')
               
               # Renombrar con información de plataforma
               if [ "$platform" == "windows-latest" ]; then
