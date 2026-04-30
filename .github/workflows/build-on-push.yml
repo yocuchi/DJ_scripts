@@ -8,6 +8,9 @@ on:
       - master
   workflow_dispatch:  # Ejecutar manualmente desde la pestaña Actions
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build DJ_CUCHI_app - ${{ matrix.os }}

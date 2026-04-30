@@ -6,6 +6,9 @@ on:
       - 'v*'  # Se activa cuando se crea un tag que empieza con 'v'
   workflow_dispatch:  # Permite ejecutar manualmente
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build ${{ matrix.os }} - ${{ matrix.script }}
