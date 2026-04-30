@@ -7,6 +7,8 @@ Interfaz web moderna con soporte completo para videos embebidos de YouTube.
 import os
 import sys
 import re
+import json
+import shutil
 import threading
 import time
 import webbrowser
@@ -51,8 +53,10 @@ from download_youtube import (
     detect_genre_online, get_output_folder, check_file_exists,
     register_song_in_db, add_id3_tags,
     save_rejected_video, is_rejected_video, sanitize_filename,
-    check_and_normalize_audio,
-    get_liked_videos_from_url, process_imported_mp3
+    check_audio_volume, apply_volume_offset,
+    get_liked_videos_from_url, process_imported_mp3,
+    redownload_full, get_genre_from_essentia,
+    generate_waveform_data
 )
 from download_quick import download_quick
 from query_db import show_statistics, search_songs
@@ -114,6 +118,29 @@ download_logs = {}
 import_status = {}
 import_logs = {}
 direct_download_tasks = {}
+redownload_full_status = {}
+
+
+def _normalize_file_path_from_db(file_path_raw: str):
+    """
+    Convierte una ruta guardada en la BD a una ruta válida en el SO actual.
+    En Windows, rutas WSL/Linux como /mnt/c/Users/... se convierten a C:\\Users\\...
+    """
+    if not file_path_raw or not file_path_raw.strip():
+        return None
+    path_str = file_path_raw.strip()
+    if sys.platform == 'win32':
+        # WSL: /mnt/c/... -> C:\...
+        if path_str.startswith('/mnt/') and len(path_str) > 5:
+            drive_letter = path_str[5]  # 'c', 'd', etc.
+            rest = path_str[6:].replace('/', os.sep)
+            path_str = f'{drive_letter.upper()}:{os.sep}{rest}'
+    path_obj = Path(path_str)
+    try:
+        path_obj = path_obj.resolve()
+    except (OSError, RuntimeError):
+        pass
+    return path_obj
 
 
 @app.route('/')
@@ -368,9 +395,8 @@ def download_song():
                     if mp3_files:
                         mp3_file = mp3_files[0]
                 
-                # Verificar y normalizar volumen
-                download_status[video_id]['progress'] = 85  # 85% - Normalizando audio
-                check_and_normalize_audio(str(mp3_file))
+                # No normalizar volumen en la descarga (se guarda el volumen medido en BD)
+                download_status[video_id]['progress'] = 85  # 85% - Procesando
                 
                 # Añadir metadatos ID3
                 download_status[video_id]['progress'] = 90  # 90% - Añadiendo metadatos
@@ -525,7 +551,6 @@ def download_direct():
                     if mp3_files:
                         mp3_file = mp3_files[0]
                 
-                check_and_normalize_audio(str(mp3_file))
                 add_id3_tags(str(mp3_file), metadata, video_info)
                 register_song_in_db(video_id, url, mp3_file, metadata, video_info, download_source='direct')
                 
@@ -602,7 +627,8 @@ def get_database_songs():
         search = request.args.get('search', '')
         show_ignored = request.args.get('show_ignored', 'false').lower() == 'true'
         try:
-            limit = int(request.args.get('limit', 100))
+            limit_arg = int(request.args.get('limit', 100))
+            limit = None if limit_arg <= 0 else limit_arg
         except (ValueError, TypeError):
             limit = 100
         
@@ -610,7 +636,7 @@ def get_database_songs():
         if db is None:
             return jsonify({'success': False, 'error': 'Base de datos no inicializada'}), 500
         
-        # Obtener todas las canciones
+        # Obtener todas las canciones (limit=None = todas)
         songs = db.get_all_songs(limit=limit)
         
         # Convertir a formato serializable (asegurar que todos los valores sean JSON-serializables)
@@ -621,11 +647,23 @@ def get_database_songs():
                 # Convertir valores None, datetime, etc. a strings
                 if value is None:
                     serializable_song[key] = None
+                elif key == 'waveform_data' and isinstance(value, str) and value.strip().startswith('['):
+                    try:
+                        serializable_song[key] = json.loads(value)
+                    except json.JSONDecodeError:
+                        serializable_song[key] = None
                 elif isinstance(value, (int, float, str, bool)):
                     serializable_song[key] = value
                 else:
                     # Convertir cualquier otro tipo a string
                     serializable_song[key] = str(value)
+            # Asegurar que los campos de volumen estén siempre presentes (para que la UI los muestre)
+            if 'volume_lufs' not in serializable_song:
+                serializable_song['volume_lufs'] = None
+            if 'volume_offset_db' not in serializable_song:
+                serializable_song['volume_offset_db'] = None
+            if 'waveform_data' not in serializable_song:
+                serializable_song['waveform_data'] = None
             serializable_songs.append(serializable_song)
         
         # Filtrar por búsqueda
@@ -651,6 +689,83 @@ def get_database_songs():
         error_msg = str(e)
         traceback.print_exc()
         return jsonify({'success': False, 'error': error_msg}), 500
+
+
+@app.route('/api/database/generate-missing-waveforms', methods=['POST'])
+def generate_missing_waveforms():
+    """Genera la forma de onda para todas las canciones que aún no la tienen."""
+    try:
+        if db is None:
+            return jsonify({'success': False, 'error': 'Base de datos no inicializada'}), 500
+        limit = min(30, max(1, int(request.args.get('limit', 20))))
+        songs = db.get_all_songs(limit=None)
+        without_waveform = [s for s in songs if not s.get('waveform_data') or (isinstance(s.get('waveform_data'), str) and not (s.get('waveform_data') or '').strip())]
+        to_process = without_waveform[:limit]
+        generated = 0
+        for song in to_process:
+            video_id = song.get('video_id')
+            file_path_raw = (song.get('file_path') or '').strip()
+            if not video_id or not file_path_raw:
+                continue
+            path_obj = _normalize_file_path_from_db(file_path_raw)
+            if not path_obj or not path_obj.exists() or not path_obj.is_file():
+                continue
+            waveform = generate_waveform_data(str(path_obj))
+            if waveform is not None:
+                db.update_song(video_id, waveform_data=json.dumps(waveform))
+                generated += 1
+        remaining = len(without_waveform) - generated
+        return jsonify({
+            'success': True,
+            'generated': generated,
+            'remaining': max(0, remaining)
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/database/duplicates', methods=['GET'])
+def get_database_duplicates():
+    """Obtiene grupos de canciones duplicadas (mismo título + artista)."""
+    try:
+        if db is None:
+            return jsonify({'success': False, 'error': 'Base de datos no inicializada'}), 500
+        groups = db.get_duplicate_songs()
+        # Serializar canciones en cada grupo (como en get_database_songs)
+        serializable_groups = []
+        for g in groups:
+            songs = []
+            for song in g['songs']:
+                s = {}
+                for key, value in song.items():
+                    if value is None:
+                        s[key] = None
+                    elif isinstance(value, (int, float, str, bool)):
+                        s[key] = value
+                    else:
+                        s[key] = str(value)
+                if 'volume_lufs' not in s:
+                    s['volume_lufs'] = None
+                if 'volume_offset_db' not in s:
+                    s['volume_offset_db'] = None
+                songs.append(s)
+            serializable_groups.append({
+                'key': g['key'],
+                'count': g['count'],
+                'songs': songs
+            })
+        return jsonify({
+            'success': True,
+            'groups': serializable_groups,
+            'total_duplicate_groups': len(serializable_groups),
+            'total_duplicate_songs': sum(g['count'] for g in serializable_groups)
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/database/statistics', methods=['GET'])
@@ -745,6 +860,246 @@ def play_song():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/database/song/<video_id>/volume', methods=['POST'])
+def adjust_song_volume(video_id):
+    """Sube o baja el volumen de una canción (modifica el archivo)."""
+    data = request.json or {}
+    delta_db = data.get('delta_db')
+    if delta_db is None:
+        return jsonify({'success': False, 'error': 'Indica delta_db en dB (ej: 2 para subir, -1.5 para bajar)'}), 400
+    try:
+        delta_db = float(delta_db)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'delta_db debe ser un número (ej: 2 o -1.5)'}), 400
+    
+    song = db.get_song_by_video_id(video_id)
+    if not song:
+        return jsonify({'success': False, 'error': 'Canción no encontrada'}), 404
+    
+    file_path_raw = song.get('file_path', '')
+    path_obj = _normalize_file_path_from_db(file_path_raw)
+    if not path_obj or not path_obj.exists() or not path_obj.is_file():
+        return jsonify({'success': False, 'error': 'Archivo no encontrado'}), 404
+    file_path = str(path_obj)
+    
+    if not apply_volume_offset(file_path, delta_db):
+        return jsonify({'success': False, 'error': 'No se pudo aplicar el cambio de volumen (¿ffmpeg instalado?)'}), 500
+    
+    volume_lufs, _ = check_audio_volume(file_path)
+    db.update_song(video_id, volume_lufs=volume_lufs, volume_offset_db=0)
+    return jsonify({
+        'success': True,
+        'message': f'Volumen {"subido" if delta_db > 0 else "bajado"} {abs(delta_db):.1f} dB',
+        'volume_lufs': volume_lufs
+    })
+
+
+@app.route('/api/database/song/<video_id>/measure-volume', methods=['POST'])
+def measure_song_volume(video_id):
+    """Mide el volumen actual del archivo y actualiza la base de datos."""
+    song = db.get_song_by_video_id(video_id)
+    if not song:
+        return jsonify({'success': False, 'error': 'Canción no encontrada'}), 404
+    file_path_raw = song.get('file_path', '').strip()
+    if not file_path_raw:
+        return jsonify({'success': False, 'error': 'La canción no tiene ruta de archivo en la base de datos'}), 400
+    path_obj = _normalize_file_path_from_db(file_path_raw)
+    if not path_obj:
+        return jsonify({'success': False, 'error': 'Ruta de archivo no válida'}), 400
+    if not path_obj.exists():
+        return jsonify({
+            'success': False,
+            'error': 'Archivo no encontrado en disco',
+            'file_path': str(path_obj)
+        }), 404
+    if not path_obj.is_file():
+        return jsonify({
+            'success': False,
+            'error': 'La ruta no es un archivo (¿es una carpeta?)',
+            'file_path': str(path_obj)
+        }), 400
+    file_path = str(path_obj)
+    if not shutil.which('ffmpeg'):
+        return jsonify({
+            'success': False,
+            'error': 'ffmpeg no está instalado o no está en el PATH del sistema',
+            'file_path': file_path
+        }), 500
+    volume_lufs, ffmpeg_error = check_audio_volume(file_path)
+    if volume_lufs is None:
+        return jsonify({
+            'success': False,
+            'error': ffmpeg_error or 'No se pudo medir el volumen',
+            'file_path': file_path
+        }), 500
+    db.update_song(video_id, volume_lufs=volume_lufs)
+    return jsonify({'success': True, 'volume_lufs': volume_lufs})
+
+
+@app.route('/api/database/song/<video_id>/waveform', methods=['POST'])
+def generate_song_waveform(video_id):
+    """Genera la forma de onda de la canción y la guarda en la base de datos."""
+    song = db.get_song_by_video_id(video_id)
+    if not song:
+        return jsonify({'success': False, 'error': 'Canción no encontrada'}), 404
+    file_path_raw = song.get('file_path', '').strip()
+    if not file_path_raw:
+        return jsonify({'success': False, 'error': 'La canción no tiene ruta de archivo'}), 400
+    path_obj = _normalize_file_path_from_db(file_path_raw)
+    if not path_obj or not path_obj.exists() or not path_obj.is_file():
+        return jsonify({'success': False, 'error': 'Archivo no encontrado en disco'}), 404
+    waveform = generate_waveform_data(str(path_obj))
+    if waveform is None:
+        return jsonify({'success': False, 'error': 'No se pudo generar la forma de onda (¿ffmpeg instalado?)'}), 500
+    db.update_song(video_id, waveform_data=json.dumps(waveform))
+    return jsonify({'success': True, 'waveform_data': waveform})
+
+
+@app.route('/api/database/song/<video_id>/reclassify', methods=['POST'])
+def reclassify_song(video_id):
+    """Vuelve a clasificar el género de una canción usando Essentia (análisis de audio)."""
+    song = db.get_song_by_video_id(video_id)
+    if not song:
+        return jsonify({'success': False, 'error': 'Canción no encontrada'}), 404
+    file_path_raw = song.get('file_path', '').strip()
+    if not file_path_raw:
+        return jsonify({'success': False, 'error': 'No hay ruta de archivo para esta canción'}), 400
+    path_obj = _normalize_file_path_from_db(file_path_raw)
+    if not path_obj or not path_obj.exists() or not path_obj.is_file():
+        return jsonify({'success': False, 'error': f'Archivo no encontrado: {path_obj}'}), 404
+    try:
+        genre = get_genre_from_essentia(str(path_obj))
+        new_genre = genre if genre else 'Sin Clasificar'
+        db.update_song(video_id, genre=new_genre)
+        return jsonify({
+            'success': True,
+            'genre': new_genre,
+            'message': f'Género actualizado a: {new_genre}'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/database/song/<video_id>/redownload', methods=['POST'])
+def redownload_song(video_id):
+    """Vuelve a descargar una canción desde YouTube (sustituye el archivo)."""
+    song = db.get_song_by_video_id(video_id)
+    if not song:
+        return jsonify({'success': False, 'error': 'Canción no encontrada'}), 404
+    
+    url = song.get('url', '')
+    if not url or 'youtube' not in url.lower():
+        return jsonify({'success': False, 'error': 'No hay URL de YouTube para esta canción'}), 400
+    
+    file_path = song.get('file_path', '')
+    if not file_path:
+        return jsonify({'success': False, 'error': 'No hay ruta de archivo'}), 400
+    
+    path_obj = Path(file_path)
+    if not path_obj.parent.exists():
+        return jsonify({'success': False, 'error': 'La carpeta del archivo no existe'}), 404
+    
+    # Metadatos a partir de la canción
+    metadata = {
+        'title': song.get('title', ''),
+        'artist': song.get('artist'),
+        'genre': song.get('genre'),
+        'year': song.get('year')
+    }
+    
+    try:
+        video_info = get_video_info(url)
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'No se pudo obtener info del video: {e}'}), 500
+    if not video_info:
+        return jsonify({'success': False, 'error': 'No se pudo obtener información del video'}), 500
+    
+    # Descargar al mismo directorio con mismo nombre base (sobrescribe)
+    output_path = path_obj.parent / path_obj.stem
+    if not download_audio(url, str(output_path), metadata):
+        return jsonify({'success': False, 'error': 'Error en la descarga'}), 500
+    
+    mp3_file = path_obj
+    if not mp3_file.exists():
+        mp3_files = list(path_obj.parent.glob(f"{path_obj.stem}*.mp3"))
+        mp3_file = mp3_files[0] if mp3_files else path_obj
+    
+    mp3_file = Path(mp3_file)
+    add_id3_tags(str(mp3_file), metadata, video_info)
+    volume_lufs, _ = check_audio_volume(str(mp3_file))
+    file_size = mp3_file.stat().st_size if mp3_file.exists() else None
+    db.update_song(video_id, file_path=str(mp3_file), file_size=file_size, volume_lufs=volume_lufs, volume_offset_db=0)
+    
+    return jsonify({
+        'success': True,
+        'message': 'Canción vuelta a descargar correctamente',
+        'file_path': str(mp3_file),
+        'volume_lufs': volume_lufs
+    })
+
+
+@app.route('/api/database/redownload-full', methods=['POST'])
+def api_redownload_full():
+    """Vuelve a descargar una o varias canciones con todo el proceso (metadatos, género, etc.)."""
+    data = request.json or {}
+    video_ids = data.get('video_ids') or []
+    if data.get('video_id'):
+        video_ids = [data['video_id']]
+    if not video_ids:
+        return jsonify({'success': False, 'error': 'Faltan video_id o video_ids'}), 400
+
+    task_id = str(uuid.uuid4())
+    redownload_full_status[task_id] = {
+        'status': 'running',
+        'total': len(video_ids),
+        'current': 0,
+        'current_video_id': None,
+        'current_message': '',
+        'results': []
+    }
+
+    def run_redownloads():
+        status = redownload_full_status[task_id]
+        try:
+            for i, vid in enumerate(video_ids):
+                status['current'] = i
+                status['current_video_id'] = vid
+                status['current_message'] = f'Procesando {i + 1}/{len(video_ids)}...'
+
+                def progress(msg):
+                    status['current_message'] = msg
+
+                success, err = redownload_full(vid, progress_callback=progress)
+                status['results'].append({'video_id': vid, 'success': success, 'error': err})
+            status['status'] = 'completed'
+            status['current_message'] = 'Completado'
+        except Exception as e:
+            status['status'] = 'error'
+            status['error'] = str(e)
+            status['current_message'] = str(e)
+
+    threading.Thread(target=run_redownloads, daemon=True).start()
+    return jsonify({'success': True, 'task_id': task_id})
+
+
+@app.route('/api/database/redownload-full/status/<task_id>', methods=['GET'])
+def api_redownload_full_status(task_id):
+    """Estado de la tarea de redownload completo."""
+    status = redownload_full_status.get(task_id, {})
+    if not status:
+        return jsonify({'success': False, 'error': 'Tarea no encontrada'}), 404
+    return jsonify({
+        'success': True,
+        'status': status.get('status'),
+        'total': status.get('total', 0),
+        'current': status.get('current', 0),
+        'current_video_id': status.get('current_video_id'),
+        'current_message': status.get('current_message', ''),
+        'results': status.get('results', []),
+        'error': status.get('error')
+    })
 
 
 @app.route('/api/database/file', methods=['GET'])
@@ -924,7 +1279,8 @@ def get_config():
                 'ENV_PATH': str(env_path.resolve()),
                 'MUSIC_FOLDER': config.get('MUSIC_FOLDER', ''),
                 'DB_PATH': db_path_config,
-                'LASTFM_API_KEY': config.get('LASTFM_API_KEY', '')
+                'LASTFM_API_KEY': config.get('LASTFM_API_KEY', ''),
+                'ESSENTIA_CLASSIFIER': config.get('ESSENTIA_CLASSIFIER', 'auto')
             }
         })
     except Exception as e:
@@ -1070,7 +1426,8 @@ def reload_config():
             'message': 'Configuración recargada',
             'config': {
                 'MUSIC_FOLDER': MUSIC_FOLDER,
-                'DB_PATH': db_path_display
+                'DB_PATH': db_path_display,
+                'ESSENTIA_CLASSIFIER': os.getenv('ESSENTIA_CLASSIFIER', 'auto')
             }
         })
     except Exception as e:
@@ -1226,11 +1583,68 @@ def browse_filesystem():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-def _update_yt_dlp_in_background():
-    """Intenta actualizar yt-dlp a la última versión en segundo plano (no bloquea el arranque)."""
-    import subprocess
+def _get_latest_yt_dlp_version_from_pypi():
+    """Obtiene la última versión de yt-dlp publicada en PyPI. Devuelve None si falla."""
     try:
-        print("🔄 Comprobando actualización de yt-dlp...")
+        from urllib.request import urlopen
+        import json
+        with urlopen('https://pypi.org/pypi/yt-dlp/json', timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        return data.get('info', {}).get('version')
+    except Exception:
+        return None
+
+
+def _compare_versions(installed: str, latest: str) -> bool:
+    """True si installed >= latest (está al día). False si installed < latest (hay que actualizar)."""
+    def to_tuple(v):
+        parts = []
+        for x in (v or '0').replace('-', '.').split('.'):
+            parts.append(int(x) if x.isdigit() else 0)
+        return tuple(parts)
+    try:
+        return to_tuple(installed) >= to_tuple(latest)
+    except (ValueError, TypeError):
+        return (installed or '') >= (latest or '0')
+
+
+def _ensure_yt_dlp_updated_at_startup():
+    """Al arranque: comprueba la versión de yt-dlp y, si no está actualizada, la actualiza con pip (bloqueante)."""
+    import subprocess
+    installed = None
+    try:
+        import yt_dlp
+        installed = getattr(yt_dlp.version, '__version__', None)
+    except ImportError:
+        print("🔄 yt-dlp no encontrado. Instalando yt-dlp...")
+        try:
+            result = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '-U', 'yt-dlp'],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode == 0:
+                print("✅ yt-dlp instalado correctamente")
+            else:
+                err = (result.stderr or result.stdout or '').strip() or f'Código: {result.returncode}'
+                print(f"⚠️ No se pudo instalar yt-dlp: {err}")
+        except subprocess.TimeoutExpired:
+            print("⚠️ Tiempo de espera agotado al instalar yt-dlp")
+        except Exception as e:
+            print(f"⚠️ Error al instalar yt-dlp: {e}")
+        return
+    if not installed:
+        return
+    latest = _get_latest_yt_dlp_version_from_pypi()
+    if not latest:
+        print("🔄 No se pudo comprobar la versión en PyPI; omitiendo verificación de yt-dlp.")
+        return
+    if _compare_versions(installed, latest):
+        print(f"✅ yt-dlp ya está al día (v{installed})")
+        return
+    print(f"🔄 yt-dlp desactualizado (v{installed} → v{latest}). Actualizando...")
+    try:
         result = subprocess.run(
             [sys.executable, '-m', 'pip', 'install', '-U', 'yt-dlp'],
             capture_output=True,
@@ -1238,26 +1652,23 @@ def _update_yt_dlp_in_background():
             timeout=120,
         )
         if result.returncode == 0:
-            if 'Successfully installed' in (result.stdout or '') or 'already up-to-date' in (result.stdout or ''):
-                print("✅ yt-dlp actualizado o ya está al día")
-            else:
-                print("✅ yt-dlp: comprobación completada")
+            print(f"✅ yt-dlp actualizado a v{latest}")
         else:
-            # No mostrar error al usuario: puede ser red, permisos, etc.
-            pass
+            err = (result.stderr or result.stdout or '').strip() or f'Código: {result.returncode}'
+            print(f"⚠️ No se pudo actualizar yt-dlp: {err}")
     except subprocess.TimeoutExpired:
-        pass
-    except Exception:
-        pass
+        print("⚠️ Tiempo de espera agotado al actualizar yt-dlp")
+    except Exception as e:
+        print(f"⚠️ Error al actualizar yt-dlp: {e}")
 
 
 if __name__ == '__main__':
+    # Verificar y actualizar yt-dlp al arranque si no está al día
+    _ensure_yt_dlp_updated_at_startup()
+
     # Crear directorio de templates si no existe
     templates_dir = Path(__file__).parent / 'templates'
     templates_dir.mkdir(exist_ok=True)
-    
-    # Actualizar yt-dlp en segundo plano para estar siempre al día con YouTube
-    threading.Thread(target=_update_yt_dlp_in_background, daemon=True).start()
     
     # Precargar modelo TensorFlow/CUDA en background (no bloquea el arranque)
     if TF_CLASSIFIER_AVAILABLE:

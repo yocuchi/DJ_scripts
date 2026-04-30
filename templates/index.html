@@ -169,6 +169,31 @@
             display: none;
         }
         
+        /* Pestaña Base de datos: tabla con scroll y consola siempre visible abajo */
+        #database.tab-content.database-tab {
+            display: none;
+            flex-direction: column;
+            padding: 20px;
+            max-height: calc(100vh - 100px);
+            overflow: hidden;
+        }
+        #database.tab-content.database-tab.active {
+            display: flex;
+        }
+        #database .database-scroll-area {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            margin-bottom: 10px;
+        }
+        #database .log-container.database-log-always-visible {
+            display: block !important;
+            flex-shrink: 0;
+            height: 200px;
+            max-height: 200px;
+            margin-top: 0;
+        }
+        
         .song-item {
             display: flex;
             align-items: center;
@@ -360,8 +385,175 @@
             background: #f8d7da;
         }
         
+        .volume-badge.low {
+            background: #fff3cd;
+            color: #856404;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .volume-unknown {
+            color: #999;
+        }
+        
+        .waveform-cell {
+            width: 150px;
+            min-width: 150px;
+            vertical-align: middle;
+        }
+        .waveform-cell canvas.waveform-canvas {
+            display: block;
+            border-radius: 4px;
+            background: #f0f0f0;
+        }
+        .btn-waveform-generate {
+            padding: 2px 8px;
+            font-size: 0.85em;
+            border: 1px solid #667eea;
+            color: #667eea;
+            background: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-waveform-generate:hover:not(:disabled) {
+            background: #667eea;
+            color: #fff;
+        }
+        .btn-waveform-generate:disabled {
+            cursor: default;
+            opacity: 0.8;
+        }
+        
         tr.context-menu-active {
             background: #e3f2fd !important;
+        }
+        
+        tr.db-row.row-selected {
+            background: #e8eaf6 !important;
+        }
+        
+        .checkbox-cell {
+            width: 36px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        
+        .checkbox-cell input[type="checkbox"] {
+            cursor: pointer;
+        }
+        
+        /* Filtros tipo Excel (autofiltros) en Base de datos */
+        .db-filters-bar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+            padding: 10px;
+            background: #f0f4ff;
+            border-radius: 8px;
+            border: 1px solid #d0d9f7;
+        }
+        .db-filters-bar label {
+            font-weight: 600;
+            color: #555;
+            margin-right: 4px;
+        }
+        .db-filter-wrap {
+            position: relative;
+            display: inline-block;
+        }
+        .db-filter-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            min-width: 100px;
+            max-width: 180px;
+        }
+        .db-filter-btn:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        .db-filter-btn.active {
+            border-color: #667eea;
+            background: #e8ecff;
+            color: #667eea;
+        }
+        .db-filter-btn::after {
+            content: ' ▼';
+            font-size: 10px;
+            opacity: 0.7;
+        }
+        .db-filter-panel {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 4px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+            z-index: 500;
+            min-width: 200px;
+            max-width: 280px;
+            max-height: 320px;
+            overflow: hidden;
+            flex-direction: column;
+        }
+        .db-filter-panel.open {
+            display: flex;
+        }
+        .db-filter-panel-actions {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .db-filter-panel-actions button {
+            padding: 4px 10px;
+            font-size: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #f8f9fa;
+            cursor: pointer;
+        }
+        .db-filter-panel-actions button:hover {
+            background: #e9ecef;
+        }
+        .db-filter-panel-list {
+            overflow-y: auto;
+            padding: 8px;
+            max-height: 260px;
+        }
+        .db-filter-panel-list label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+            cursor: pointer;
+            font-weight: normal;
+            font-size: 13px;
+        }
+        .db-filter-panel-list label:hover {
+            background: #f5f5f5;
+            margin: 0 -8px;
+            padding: 4px 8px;
+        }
+        .db-filter-panel-list input[type="checkbox"] {
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .db-filter-empty-option {
+            color: #888;
+            font-style: italic;
         }
         
         /* Modal de explorador de archivos */
@@ -548,21 +740,40 @@
         </div>
         
         <!-- Pestaña: Base de Datos -->
-        <div id="database" class="tab-content">
-            <h2>💾 Base de Datos</h2>
-            <div class="control-group">
-                <label>🔍 Buscar:</label>
-                <input type="text" id="db-search" placeholder="Buscar en todas las columnas..." onkeyup="searchDatabase()">
-                <button class="btn btn-primary" onclick="loadDatabase()">🔄 Actualizar</button>
-                <button class="btn btn-primary" onclick="showStatistics()">📊 Estadísticas</button>
+        <div id="database" class="tab-content database-tab">
+            <div class="database-scroll-area">
+                <h2>💾 Base de Datos</h2>
+                <div class="control-group">
+                    <label>🔍 Buscar:</label>
+                    <input type="text" id="db-search" placeholder="Buscar en todas las columnas..." onkeyup="searchDatabase()">
+                    <label for="db-limit" style="min-width: auto;">Límite:</label>
+                    <select id="db-limit" onchange="loadDatabase()" style="flex: none; min-width: 100px;">
+                        <option value="100">100</option>
+                        <option value="500">500</option>
+                        <option value="1000">1000</option>
+                        <option value="0">Todas</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="loadDatabase()">🔄 Actualizar</button>
+                    <button class="btn btn-primary" onclick="showStatistics()">📊 Estadísticas</button>
+                    <button class="btn btn-primary" onclick="searchDuplicates()" title="Buscar canciones con mismo título y artista">🔍 Buscar duplicados</button>
+                    <button class="btn btn-primary" id="btn-generate-missing-waveforms" onclick="generateMissingWaveforms()" title="Generar forma de onda para canciones que aún no la tienen">〰️ Generar waveforms faltantes</button>
+                </div>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="show-ignored-only" onchange="loadDatabase()"> Mostrar solo ignoradas
+                    </label>
+                </div>
+                <div id="db-filters-bar" class="db-filters-bar" style="display: none;"></div>
+                <div id="database-selection-bar" class="control-group" style="display: none; align-items: center; gap: 12px; padding: 10px; background: #e8eaf6; border-radius: 8px; margin-bottom: 10px;">
+                    <span id="database-selection-count">0 seleccionadas</span>
+                    <button type="button" class="btn btn-primary" onclick="measureVolumeSelected()">📊 Recalcular volumen</button>
+                    <button type="button" class="btn btn-primary" onclick="redownloadFullSelected()">🔄 Volver a descargar (proceso completo)</button>
+                    <button type="button" class="btn btn-danger" onclick="deleteSelectedSongs()">🗑️ Eliminar seleccionadas</button>
+                    <button type="button" class="btn" onclick="clearDatabaseSelection()" style="background: #6c757d; color: white;">✕ Quitar selección</button>
+                </div>
+                <div id="database-results"></div>
             </div>
-            <div class="control-group">
-                <label>
-                    <input type="checkbox" id="show-ignored-only" onchange="loadDatabase()"> Mostrar solo ignoradas
-                </label>
-            </div>
-            <div id="database-results"></div>
-            <div class="log-container" id="database-log"></div>
+            <div class="log-container database-log-always-visible" id="database-log" title="Consola"></div>
         </div>
         
         <!-- Pestaña: Playlist Youtube -->
@@ -638,14 +849,27 @@
                 <input type="text" id="config-lastfm-key" placeholder="API Key de Last.fm">
             </div>
             <div style="margin-top: 20px; padding: 15px; background: #e8f4fd; border-radius: 10px;">
-                <h3>📦 yt-dlp</h3>
-                <p style="margin: 10px 0;">Versión instalada: <strong id="config-ytdlp-version">—</strong></p>
-                <button class="btn btn-primary" onclick="updateYtDlp()" id="config-ytdlp-update-btn">🔄 Forzar actualización</button>
-                <span id="config-ytdlp-status" style="margin-left: 10px;"></span>
+                <h3>🏷️ Clasificación Essentia</h3>
+                <p style="margin: 10px 0;">Modelo usado para detectar el género por análisis de audio (al descargar o al usar "Volver a clasificar"):</p>
+                <div class="control-group">
+                    <label>Modelo de clasificación:</label>
+                    <select id="config-essentia-classifier">
+                        <option value="auto">Automático (TensorFlow + Legacy MusicNN)</option>
+                        <option value="tf">Solo TensorFlow / Discogs-EffNet</option>
+                        <option value="legacy">Solo Legacy MusicNN</option>
+                    </select>
+                </div>
+                <p style="margin: 5px 0; font-size: 0.9em; color: #555;">Automático intenta primero el modelo más preciso (TensorFlow) y, si falla, usa MusicNN. "Solo TF" requiere tener los modelos en la carpeta <code>essentia/tf_models</code>.</p>
             </div>
             <div class="control-group">
                 <button class="btn btn-success" onclick="saveConfig()">💾 Guardar Configuración</button>
                 <button class="btn btn-primary" onclick="saveAndReloadConfig()" style="margin-left: 10px;">🔄 Guardar y Aplicar</button>
+            </div>
+            <div style="margin-top: 20px; padding: 15px; background: #e8f4fd; border-radius: 10px;">
+                <h3>📦 yt-dlp</h3>
+                <p style="margin: 10px 0;">Versión instalada: <strong id="config-ytdlp-version">—</strong></p>
+                <button class="btn btn-primary" onclick="updateYtDlp()" id="config-ytdlp-update-btn">🔄 Forzar actualización</button>
+                <span id="config-ytdlp-status" style="margin-left: 10px;"></span>
             </div>
             <div style="margin-top: 20px; padding: 15px; background: #d4edda; border-radius: 10px;">
                 <h3>🔄 Reinicio de la Aplicación</h3>
@@ -873,15 +1097,22 @@
         }
         
         // ========== PESTAÑA: BASE DE DATOS ==========
-        async function loadDatabase() {
+        const EMPTY_FILTER_VALUE = '__empty__';
+        let allSongsRaw = [];
+        const dbFilterState = { genre: new Set(), artist: new Set(), year: new Set(), download_source: new Set(), waveform: new Set() };
+        
+        async function loadDatabase(clearLogBeforeLoad = true) {
             const search = document.getElementById('db-search').value;
             const showIgnored = document.getElementById('show-ignored-only').checked;
+            const limitEl = document.getElementById('db-limit');
+            const limit = limitEl ? limitEl.value : '100';
             
-            clearLog('database');
+            if (clearLogBeforeLoad) clearLog('database');
             log('database', '🔄 Cargando base de datos...');
             
             try {
-                const response = await fetch(`/api/database/songs?search=${encodeURIComponent(search)}&show_ignored=${showIgnored}`);
+                const limitParam = limit === '0' ? '0' : limit;
+                const response = await fetch(`/api/database/songs?search=${encodeURIComponent(search)}&show_ignored=${showIgnored}&limit=${limitParam}`);
                 
                 // Verificar si la respuesta es JSON
                 const contentType = response.headers.get('content-type');
@@ -900,7 +1131,9 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    renderDatabaseTable(data.songs);
+                    allSongsRaw = data.songs || [];
+                    buildFilterBar(allSongsRaw);
+                    applyFiltersAndRender();
                     log('database', `✅ ${data.count} canciones encontradas`);
                 } else {
                     log('database', `❌ Error: ${data.error || 'Error desconocido'}`);
@@ -917,6 +1150,258 @@
         
         function searchDatabase() {
             loadDatabase();
+        }
+        
+        function formatSourceForFilter(source) {
+            if (!source) return 'N/A';
+            const map = { 'playlist': '📋 Playlist', 'direct': '🔗 Directo', 'import': '📁 Importado', 'puntual': '⚡ Puntual' };
+            return map[source] || source;
+        }
+        
+        function buildFilterBar(songs) {
+            const bar = document.getElementById('db-filters-bar');
+            if (!bar) return;
+            if (!songs || songs.length === 0) {
+                bar.style.display = 'none';
+                bar.innerHTML = '';
+                return;
+            }
+            const cols = [
+                { key: 'genre', label: 'Género' },
+                { key: 'artist', label: 'Artista' },
+                { key: 'year', label: 'Año' },
+                { key: 'download_source', label: 'Origen' },
+                { key: 'waveform', label: 'Waveform' }
+            ];
+            const unique = {};
+            cols.forEach(c => {
+                const set = new Set();
+                if (c.key === 'waveform') {
+                    songs.forEach(s => {
+                        const hasWaveform = s.waveform_data && Array.isArray(s.waveform_data) && s.waveform_data.length > 0;
+                        set.add(hasWaveform ? 'yes' : 'no');
+                    });
+                    unique[c.key] = Array.from(set).sort((a, b) => (a === 'no' ? -1 : 1));
+                } else {
+                    songs.forEach(s => {
+                        const v = s[c.key];
+                        if (v === null || v === undefined || String(v).trim() === '') set.add(EMPTY_FILTER_VALUE);
+                        else set.add(c.key === 'download_source' ? v : String(v).trim());
+                    });
+                    unique[c.key] = Array.from(set).sort((a, b) => (a === EMPTY_FILTER_VALUE ? -1 : b === EMPTY_FILTER_VALUE ? 1 : String(a).localeCompare(String(b))));
+                }
+            });
+            let html = '<span style="margin-right:8px;font-weight:bold;">Filtros:</span>';
+            cols.forEach(c => {
+                const id = 'db-filter-' + c.key;
+                const panelId = 'db-filter-panel-' + c.key;
+                const active = dbFilterState[c.key].size > 0;
+                const count = active ? dbFilterState[c.key].size : unique[c.key].length;
+                html += `<div class="db-filter-wrap">
+                    <button type="button" class="db-filter-btn ${active ? 'active' : ''}" id="${id}" data-panel="${panelId}" aria-haspopup="true">${c.label} (${count})</button>
+                    <div class="db-filter-panel" id="${panelId}" role="dialog">
+                        <div class="db-filter-panel-actions">
+                            <button type="button" data-db-filter-select="${c.key}" data-db-filter-all="true">Seleccionar todo</button>
+                            <button type="button" data-db-filter-select="${c.key}" data-db-filter-all="false">Limpiar</button>
+                        </div>
+                        <div class="db-filter-panel-list">`;
+                unique[c.key].forEach(val => {
+                    const isEmpty = val === EMPTY_FILTER_VALUE;
+                    let label;
+                    if (c.key === 'waveform') label = val === 'yes' ? 'Con waveform' : 'Sin waveform';
+                    else label = isEmpty ? '(Vacío)' : (c.key === 'download_source' ? formatSourceForFilter(val) : val);
+                    const safeLabel = String(label).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    // Sin filtro (size 0) = todos desmarcados; con filtro = solo los seleccionados marcados
+                    const checked = dbFilterState[c.key].size > 0 && dbFilterState[c.key].has(val);
+                    const labelClass = isEmpty ? ' class="db-filter-empty-option"' : '';
+                    const safeVal = (c.key === 'waveform' ? val : (isEmpty ? EMPTY_FILTER_VALUE : String(val))).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/&/g, '&amp;');
+                    html += `<label${labelClass}><input type="checkbox" data-col="${c.key}" data-val="${safeVal}" ${checked ? 'checked' : ''}> ${safeLabel}</label>`;
+                });
+                html += '</div></div></div>';
+            });
+            bar.innerHTML = html;
+            bar.style.display = 'flex';
+            // Abrir/cerrar panel al hacer clic en el botón
+            bar.querySelectorAll('.db-filter-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const panelId = this.getAttribute('data-panel');
+                    const panel = document.getElementById(panelId);
+                    const open = panel && panel.classList.contains('open');
+                    document.querySelectorAll('.db-filter-panel').forEach(p => p.classList.remove('open'));
+                    if (!open && panel) panel.classList.add('open');
+                });
+            });
+            // Botones "Seleccionar todo" y "Limpiar" (delegación para que funcionen tras innerHTML)
+            bar.querySelectorAll('button[data-db-filter-select]').forEach(btn => {
+                const col = btn.getAttribute('data-db-filter-select');
+                const selectAll = btn.getAttribute('data-db-filter-all') === 'true';
+                btn.addEventListener('click', function(e) { e.stopPropagation(); dbFilterSelectAll(col, selectAll); });
+            });
+            // Cambio en cada checkbox del filtro
+            bar.querySelectorAll('.db-filter-panel-list input[type="checkbox"]').forEach(cb => {
+                const col = cb.getAttribute('data-col');
+                cb.addEventListener('change', function() { dbFilterChange(col); });
+            });
+            if (!window._dbFilterCloseBound) {
+                window._dbFilterCloseBound = true;
+                document.addEventListener('click', function(e) {
+                    if (!e.target.closest('.db-filter-wrap')) document.querySelectorAll('.db-filter-panel').forEach(p => p.classList.remove('open'));
+                });
+            }
+        }
+        
+        function dbFilterSelectAll(col, selectAll) {
+            const panel = document.getElementById('db-filter-panel-' + col);
+            if (!panel) return;
+            const checkboxes = panel.querySelectorAll('input[type="checkbox"]');
+            if (selectAll) checkboxes.forEach(cb => { cb.checked = true; });
+            else checkboxes.forEach(cb => { cb.checked = false; });
+            dbFilterState[col] = new Set();
+            if (selectAll) {
+                checkboxes.forEach(cb => { dbFilterState[col].add(cb.getAttribute('data-val')); });
+            }
+            buildFilterBar(allSongsRaw);
+            applyFiltersAndRender();
+        }
+        
+        function dbFilterChange(col) {
+            const panel = document.getElementById('db-filter-panel-' + col);
+            if (!panel) return;
+            const checkboxes = panel.querySelectorAll('input[type="checkbox"]');
+            dbFilterState[col] = new Set();
+            checkboxes.forEach(cb => { if (cb.checked) dbFilterState[col].add(cb.getAttribute('data-val')); });
+            buildFilterBar(allSongsRaw);
+            applyFiltersAndRender();
+        }
+        
+        function applyColumnFilters(songs) {
+            if (!songs) return [];
+            let out = songs;
+            ['genre', 'artist', 'year', 'download_source', 'waveform'].forEach(col => {
+                const sel = dbFilterState[col];
+                if (sel.size === 0) return;
+                if (col === 'waveform') {
+                    out = out.filter(s => {
+                        const hasWaveform = s.waveform_data && Array.isArray(s.waveform_data) && s.waveform_data.length > 0;
+                        const val = hasWaveform ? 'yes' : 'no';
+                        return sel.has(val);
+                    });
+                } else {
+                    out = out.filter(s => {
+                        const raw = s[col];
+                        const val = raw === null || raw === undefined || String(raw).trim() === '' ? EMPTY_FILTER_VALUE : (col === 'download_source' ? raw : String(raw).trim());
+                        return sel.has(val);
+                    });
+                }
+            });
+            return out;
+        }
+        
+        function applyFiltersAndRender() {
+            const filtered = applyColumnFilters(allSongsRaw);
+            renderDatabaseTable(filtered);
+        }
+        
+        async function searchDuplicates() {
+            clearLog('database');
+            log('database', '🔍 Buscando duplicados (mismo título y artista)...');
+            try {
+                const response = await fetch('/api/database/duplicates');
+                const data = await response.json();
+                if (!response.ok) {
+                    log('database', `❌ Error: ${data.error || response.statusText}`);
+                    return;
+                }
+                if (!data.success) {
+                    log('database', `❌ ${data.error || 'Error desconocido'}`);
+                    return;
+                }
+                if (data.groups.length === 0) {
+                    log('database', '✅ No se encontraron duplicados');
+                    renderDuplicatesView([]);
+                    return;
+                }
+                log('database', `✅ ${data.total_duplicate_groups} grupo(s) de duplicados (${data.total_duplicate_songs} canciones en total)`);
+                renderDuplicatesView(data.groups);
+            } catch (error) {
+                log('database', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        function renderDuplicatesView(groups) {
+            const container = document.getElementById('database-results');
+            if (groups.length === 0) {
+                container.innerHTML = '<p style="text-align: center; padding: 40px;">No hay duplicados. Las canciones se consideran duplicadas cuando tienen el mismo título y artista.</p>' +
+                    '<p style="text-align: center;"><button class="btn btn-primary" onclick="loadDatabase()">🔄 Volver a la lista</button></p>';
+                return;
+            }
+            let html = '<div class="duplicates-view">';
+            html += '<div class="control-group" style="margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">';
+            html += `<span><strong>${groups.length} grupo(s) de duplicados</strong> (${groups.reduce((acc, g) => acc + g.songs.length, 0)} canciones)</span>`;
+            html += '<button class="btn btn-primary" onclick="loadDatabase()">🔄 Volver a la lista</button>';
+            html += '</div>';
+            function formatDate(dateStr) {
+                if (!dateStr) return 'N/A';
+                try {
+                    const d = new Date(dateStr);
+                    return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+                } catch (e) { return dateStr; }
+            }
+            function formatSource(source) {
+                const map = { 'playlist': '📋 Playlist', 'direct': '🔗 Directo', 'import': '📁 Importado', 'puntual': '⚡ Puntual' };
+                return source ? (map[source] || source) : 'N/A';
+            }
+            groups.forEach((group, idx) => {
+                html += `<div class="duplicate-group" style="margin-bottom: 24px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">`;
+                html += `<div class="duplicate-group-header" style="padding: 10px 14px; background: #f5f5f5; font-weight: bold;">📋 ${group.key} <span style="color: #666;">(${group.count} copias)</span></div>`;
+                html += '<table><thead><tr>';
+                html += '<th class="checkbox-cell"><input type="checkbox" title="Seleccionar todas del grupo" onclick="toggleDuplicateGroupCheckboxes(this)"></th>';
+                html += '<th class="album-art-cell">Portada</th><th>Título</th><th>Artista</th><th>Género</th><th>Año</th><th>Fecha</th><th>Origen</th><th>Volumen</th><th>Archivo</th>';
+                html += '</tr></thead><tbody>';
+                group.songs.forEach(song => {
+                    const videoId = song.video_id || '';
+                    const thumbnailUrl = song.thumbnail_url || '';
+                    const albumArtHtml = thumbnailUrl
+                        ? `<img src="${thumbnailUrl}" alt="Album Art" class="album-art" onerror="this.parentElement.innerHTML='<div style=\'width:60px;height:60px;background:#f0f0f0;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#999;font-size:20px;\'>🎵</div>'">`
+                        : '<div style="width:60px;height:60px;background:#f0f0f0;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#999;font-size:20px;margin:0 auto;">🎵</div>';
+                    const vol = song.volume_lufs != null ? Number(song.volume_lufs) : null;
+                    const volHtml = vol != null ? `${vol.toFixed(1)} LUFS` : '—';
+                    const isChecked = selectedVideoIds.has(videoId);
+                    html += `<tr data-video-id="${videoId}" class="db-row ${isChecked ? 'row-selected' : ''}">
+                        <td class="checkbox-cell"><input type="checkbox" class="db-row-checkbox" data-video-id="${videoId}" ${isChecked ? 'checked' : ''} onclick="toggleDatabaseRowSelection('${videoId.replace(/'/g, "\\'")}')"></td>
+                        <td class="album-art-cell">${albumArtHtml}</td>
+                        <td>${song.title || 'N/A'}</td>
+                        <td>${song.artist || 'N/A'}</td>
+                        <td>${song.genre || 'N/A'}</td>
+                        <td>${song.year || 'N/A'}</td>
+                        <td>${formatDate(song.downloaded_at)}</td>
+                        <td>${formatSource(song.download_source)}</td>
+                        <td>${volHtml}</td>
+                        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(song.file_path || '').replace(/"/g, '&quot;')}">${song.file_path ? song.file_path.split(/[/\\\\]/).pop() : 'N/A'}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table></div>';
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+        
+        function toggleDuplicateGroupCheckboxes(headerCheckbox) {
+            const group = headerCheckbox.closest('.duplicate-group');
+            if (!group) return;
+            const checkboxes = group.querySelectorAll('.db-row-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = headerCheckbox.checked;
+                const videoId = cb.getAttribute('data-video-id');
+                const row = group.querySelector(`tr[data-video-id="${videoId}"]`);
+                if (row) {
+                    if (headerCheckbox.checked) selectedVideoIds.add(videoId);
+                    else selectedVideoIds.delete(videoId);
+                    row.classList.toggle('row-selected', headerCheckbox.checked);
+                }
+            });
+            updateDatabaseSelectionBar();
         }
         
         // Variables globales para ordenamiento
@@ -971,6 +1456,7 @@
             }
             
             let html = '<table><thead><tr>';
+            html += '<th class="checkbox-cell"><input type="checkbox" id="db-select-all" title="Seleccionar todas" onclick="toggleSelectAllDatabase()"></th>';
             html += '<th class="album-art-cell">Portada</th>';
             html += '<th class="sortable" data-column="title" onclick="sortTable(\'title\')">Título</th>';
             html += '<th class="sortable" data-column="artist" onclick="sortTable(\'artist\')">Artista</th>';
@@ -978,6 +1464,8 @@
             html += '<th class="sortable" data-column="year" onclick="sortTable(\'year\')">Año</th>';
             html += '<th class="sortable" data-column="downloaded_at" onclick="sortTable(\'downloaded_at\')">Fecha Descarga</th>';
             html += '<th class="sortable" data-column="download_source" onclick="sortTable(\'download_source\')">Origen</th>';
+            html += '<th class="sortable" data-column="volume_lufs" onclick="sortTable(\'volume_lufs\')" title="Volumen medido (LUFS). Usa \'Medir volumen\' en el menú contextual si aparece —">Volumen (LUFS)</th>';
+            html += '<th title="Forma de onda de la canción">Waveform</th>';
             html += '<th>Archivo</th>';
             html += '</tr></thead><tbody>';
             
@@ -987,8 +1475,17 @@
                 const albumArtHtml = thumbnailUrl 
                     ? `<img src="${thumbnailUrl}" alt="Album Art" class="album-art" onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'width:60px;height:60px;background:#f0f0f0;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#999;font-size:20px;\'>🎵</div>'">`
                     : '<div style="width:60px;height:60px;background:#f0f0f0;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#999;font-size:20px;margin:0 auto;">🎵</div>';
-                
-                html += `<tr data-video-id="${videoId}" class="db-row">
+                const vol = song.volume_lufs != null ? Number(song.volume_lufs) : null;
+                const volHtml = vol != null
+                    ? (vol < -26 ? `<span class="volume-badge low" title="Volumen bajo">${vol.toFixed(1)} LUFS</span>` : `<span>${vol.toFixed(1)} LUFS</span>`)
+                    : '<span class="volume-unknown" title="No medido">—</span>';
+                const hasWaveform = song.waveform_data && Array.isArray(song.waveform_data) && song.waveform_data.length > 0;
+                const waveformHtml = hasWaveform
+                    ? `<canvas class="waveform-canvas" data-video-id="${videoId}" width="140" height="28" title="Forma de onda"></canvas>`
+                    : `— <button type="button" class="btn-waveform-generate" data-video-id="${videoId}" title="Generar forma de onda">Generar</button>`;
+                const isChecked = selectedVideoIds.has(videoId);
+                html += `<tr data-video-id="${videoId}" class="db-row ${isChecked ? 'row-selected' : ''}">
+                    <td class="checkbox-cell"><input type="checkbox" class="db-row-checkbox" data-video-id="${videoId}" ${isChecked ? 'checked' : ''} onclick="toggleDatabaseRowSelection('${videoId.replace(/'/g, "\\'")}')"></td>
                     <td class="album-art-cell">${albumArtHtml}</td>
                     <td>${song.title || 'N/A'}</td>
                     <td>${song.artist || 'N/A'}</td>
@@ -996,6 +1493,8 @@
                     <td>${song.year || 'N/A'}</td>
                     <td>${formatDate(song.downloaded_at)}</td>
                     <td>${formatSource(song.download_source)}</td>
+                    <td>${volHtml}</td>
+                    <td class="waveform-cell">${waveformHtml}</td>
                     <td>${song.file_path || 'N/A'}</td>
                 </tr>`;
             });
@@ -1003,11 +1502,27 @@
             html += '</tbody></table>';
             container.innerHTML = html;
             
+            // Dibujar waveforms en los canvas y enlazar botones "Generar"
+            drawAllWaveforms();
+            container.querySelectorAll('.btn-waveform-generate').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const vid = btn.getAttribute('data-video-id');
+                    if (vid) generateWaveformForSong(vid, btn);
+                });
+            });
+            
             // Actualizar indicadores de ordenamiento en los headers
             updateSortIndicators();
             
             // Añadir event listeners para el menú contextual
             setupContextMenu();
+            // Sincronizar "Seleccionar todas"
+            const selectAll = document.getElementById('db-select-all');
+            if (selectAll && songs.length > 0) {
+                const allSelected = songs.every(s => selectedVideoIds.has(s.video_id || ''));
+                selectAll.checked = allSelected;
+            }
         }
         
         function sortTable(column) {
@@ -1060,6 +1575,17 @@
                     }
                 }
                 
+                // Ordenamiento para volumen (LUFS: más alto = más fuerte, menor número = más bajo)
+                if (column === 'volume_lufs') {
+                    const numA = a.volume_lufs != null ? Number(a.volume_lufs) : -999;
+                    const numB = b.volume_lufs != null ? Number(b.volume_lufs) : -999;
+                    if (direction === 'asc') {
+                        return numA - numB;
+                    } else {
+                        return numB - numA;
+                    }
+                }
+                
                 // Ordenamiento alfabético
                 if (direction === 'asc') {
                     return aVal.localeCompare(bVal);
@@ -1069,6 +1595,55 @@
             });
             
             return sorted;
+        }
+        
+        function drawWaveform(canvas, data) {
+            if (!canvas || !data || !data.length) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width;
+            const h = canvas.height;
+            const mid = h / 2;
+            const barWidth = Math.max(1, w / data.length);
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = '#667eea';
+            for (let i = 0; i < data.length; i++) {
+                const v = Math.min(1, Math.max(0, Number(data[i]) || 0));
+                const barH = (v * (mid - 2)) || 1;
+                const x = (i / data.length) * w;
+                ctx.fillRect(x, mid - barH, barWidth + 0.5, barH * 2);
+            }
+        }
+        
+        function drawAllWaveforms() {
+            document.querySelectorAll('.waveform-canvas').forEach(canvas => {
+                const videoId = canvas.getAttribute('data-video-id');
+                const song = (typeof allSongs !== 'undefined' ? allSongs : []).find(s => (s.video_id || '') === videoId);
+                if (song && song.waveform_data && Array.isArray(song.waveform_data)) drawWaveform(canvas, song.waveform_data);
+            });
+        }
+        
+        async function generateWaveformForSong(videoId, buttonEl) {
+            if (!videoId) return;
+            if (buttonEl) {
+                buttonEl.disabled = true;
+                buttonEl.textContent = '…';
+            }
+            try {
+                const response = await fetch(`/api/database/song/${encodeURIComponent(videoId)}/waveform`, { method: 'POST' });
+                const data = await response.json();
+                if (data.success && data.waveform_data) {
+                    const song = allSongs.find(s => (s.video_id || '') === videoId);
+                    if (song) song.waveform_data = data.waveform_data;
+                    renderDatabaseTable(allSongs);
+                    log('database', 'Waveform generado correctamente');
+                } else {
+                    log('database', 'Error al generar waveform: ' + (data.error || 'desconocido'));
+                    if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = 'Generar'; }
+                }
+            } catch (e) {
+                log('database', 'Error al generar waveform: ' + e.message);
+                if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = 'Generar'; }
+            }
         }
         
         function updateSortIndicators() {
@@ -1095,6 +1670,13 @@
                 contextMenu.className = 'context-menu';
                 contextMenu.innerHTML = `
                     <div class="context-menu-item" onclick="playSelectedSong()">🎵 Escuchar canción</div>
+                    <div class="context-menu-item" onclick="measureVolumeFromContext()">📊 Recalcular volumen</div>
+                    <div class="context-menu-item" onclick="adjustVolume(2)">🔊 Subir volumen (+2 dB)</div>
+                    <div class="context-menu-item" onclick="adjustVolume(-2)">🔉 Bajar volumen (-2 dB)</div>
+                    <div class="context-menu-item" onclick="generateWaveformFromContext()">〰️ Generar waveform</div>
+                    <div class="context-menu-item" onclick="reclassifyFromContext()">🏷️ Volver a clasificar</div>
+                    <div class="context-menu-item" onclick="redownloadSong()">🔄 Volver a descargar (rápido)</div>
+                    <div class="context-menu-item" onclick="redownloadFullFromContext()">🔄 Volver a descargar (proceso completo)</div>
                     <div class="context-menu-item danger" onclick="deleteSelectedSong()">🗑️ Borrar fichero y entrada</div>
                 `;
                 document.body.appendChild(contextMenu);
@@ -1121,6 +1703,67 @@
         
         let selectedVideoId = null;
         let selectedRow = null;
+        let selectedVideoIds = new Set();
+        
+        function toggleDatabaseRowSelection(videoId) {
+            if (selectedVideoIds.has(videoId)) {
+                selectedVideoIds.delete(videoId);
+            } else {
+                selectedVideoIds.add(videoId);
+            }
+            updateSelectionBar();
+            const row = document.querySelector(`.db-row[data-video-id="${videoId}"]`);
+            if (row) row.classList.toggle('row-selected', selectedVideoIds.has(videoId));
+        }
+        
+        function toggleSelectAllDatabase() {
+            const selectAll = document.getElementById('db-select-all');
+            const checkboxes = document.querySelectorAll('.db-row-checkbox');
+            if (selectAll && selectAll.checked) {
+                checkboxes.forEach(cb => {
+                    selectedVideoIds.add(cb.getAttribute('data-video-id'));
+                    cb.checked = true;
+                });
+                document.querySelectorAll('.db-row').forEach(row => row.classList.add('row-selected'));
+            } else {
+                checkboxes.forEach(cb => {
+                    selectedVideoIds.delete(cb.getAttribute('data-video-id'));
+                    cb.checked = false;
+                });
+                document.querySelectorAll('.db-row').forEach(row => row.classList.remove('row-selected'));
+            }
+            updateSelectionBar();
+        }
+        
+        function updateSelectionBar() {
+            const bar = document.getElementById('database-selection-bar');
+            const countEl = document.getElementById('database-selection-count');
+            if (!bar || !countEl) return;
+            if (selectedVideoIds.size === 0) {
+                bar.style.display = 'none';
+                const selectAll = document.getElementById('db-select-all');
+                if (selectAll) selectAll.checked = false;
+            } else {
+                bar.style.display = 'flex';
+                countEl.textContent = selectedVideoIds.size === 1 ? '1 seleccionada' : selectedVideoIds.size + ' seleccionadas';
+            }
+        }
+        
+        function clearDatabaseSelection() {
+            selectedVideoIds.clear();
+            document.querySelectorAll('.db-row-checkbox').forEach(cb => { cb.checked = false; });
+            document.querySelectorAll('.db-row').forEach(row => row.classList.remove('row-selected'));
+            const selectAll = document.getElementById('db-select-all');
+            if (selectAll) selectAll.checked = false;
+            updateSelectionBar();
+        }
+        
+        function getTargetVideoIdsForAction() {
+            if (selectedVideoIds.has(selectedVideoId)) {
+                return Array.from(selectedVideoIds);
+            }
+            return selectedVideoId ? [selectedVideoId] : [];
+        }
         
         function handleContextMenu(e) {
             e.preventDefault();
@@ -1196,8 +1839,260 @@
                     log('database', `❌ Error: ${data.error}`);
                 }
             } catch (error) {
+                    log('database', `❌ Error: ${error.message}`);
+                }
+        }
+        
+        async function measureVolumeFromContext() {
+            const ids = getTargetVideoIdsForAction();
+            if (ids.length === 0) {
+                alert('Selecciona al menos una canción (o haz clic derecho en una fila).');
+                return;
+            }
+            hideContextMenu();
+            await runMeasureVolume(ids);
+        }
+        
+        async function measureVolumeSelected() {
+            if (selectedVideoIds.size === 0) {
+                alert('Selecciona al menos una canción (marca el checkbox de la fila o varias filas).');
+                return;
+            }
+            await runMeasureVolume(Array.from(selectedVideoIds));
+        }
+        
+        async function runMeasureVolume(videoIds) {
+            const logEl = document.getElementById('database-log');
+            if (logEl) logEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            log('database', `📊 Recalculando volumen: ${videoIds.length} canción(es)...`);
+            let ok = 0, fail = 0;
+            for (const videoId of videoIds) {
+                try {
+                    const response = await fetch(`/api/database/song/${encodeURIComponent(videoId)}/measure-volume`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        ok++;
+                        if (videoIds.length === 1) {
+                            log('database', `✅ Volumen: ${data.volume_lufs != null ? data.volume_lufs.toFixed(1) + ' LUFS' : 'medido'}`);
+                        }
+                    } else {
+                        fail++;
+                        log('database', `❌ ${videoId}: ${data.error || 'Error al medir volumen'}`);
+                        if (data.file_path) log('database', `   Ruta usada: ${data.file_path}`);
+                    }
+                } catch (error) {
+                    fail++;
+                    log('database', `❌ ${videoId}: ${error.message}`);
+                }
+            }
+            if (videoIds.length > 1) {
+                log('database', `✅ Volumen recalculado: ${ok} correctas${fail ? ', ' + fail + ' con error' : ''}.`);
+            }
+            await loadDatabase(false);
+        }
+        
+        async function generateWaveformFromContext() {
+            const ids = getTargetVideoIdsForAction();
+            if (ids.length === 0) {
+                alert('Selecciona al menos una canción (o haz clic derecho en una fila).');
+                return;
+            }
+            hideContextMenu();
+            for (const videoId of ids) await generateWaveformForSong(videoId, null);
+        }
+        
+        async function generateMissingWaveforms() {
+            const btn = document.getElementById('btn-generate-missing-waveforms');
+            if (btn) { btn.disabled = true; btn.textContent = '〰️ Generando…'; }
+            clearLog('database');
+            log('database', '〰️ Generando waveforms para canciones que no lo tienen...');
+            let totalGenerated = 0;
+            try {
+                for (;;) {
+                    const response = await fetch('/api/database/generate-missing-waveforms', { method: 'POST' });
+                    const data = await response.json();
+                    if (!data.success) {
+                        log('database', '❌ Error: ' + (data.error || 'desconocido'));
+                        break;
+                    }
+                    const n = data.generated || 0;
+                    const remaining = data.remaining || 0;
+                    totalGenerated += n;
+                    if (n > 0) log('database', `   ✓ ${n} waveform(s) generados. Faltan: ${remaining}`);
+                    if (n === 0 || remaining === 0) break;
+                }
+                log('database', totalGenerated > 0 ? `✅ Listo. Total generados: ${totalGenerated}` : '✅ No hay canciones sin waveform.');
+                loadDatabase();
+            } catch (e) {
+                log('database', '❌ Error: ' + e.message);
+            }
+            if (btn) { btn.disabled = false; btn.textContent = '〰️ Generar waveforms faltantes'; }
+        }
+        
+        async function reclassifyFromContext() {
+            const ids = getTargetVideoIdsForAction();
+            if (ids.length === 0) {
+                alert('Selecciona al menos una canción (o haz clic derecho en una fila).');
+                return;
+            }
+            hideContextMenu();
+            const logEl = document.getElementById('database-log');
+            if (logEl) logEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            log('database', `🏷️ Volver a clasificar: ${ids.length} canción(es) con Essentia...`);
+            let ok = 0, fail = 0;
+            for (const videoId of ids) {
+                try {
+                    const response = await fetch(`/api/database/song/${encodeURIComponent(videoId)}/reclassify`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        ok++;
+                        log('database', `✅ ${videoId}: género → ${data.genre}`);
+                    } else {
+                        fail++;
+                        log('database', `❌ ${videoId}: ${data.error || 'Error al clasificar'}`);
+                    }
+                } catch (error) {
+                    fail++;
+                    log('database', `❌ ${videoId}: ${error.message}`);
+                }
+            }
+            if (ids.length > 1) {
+                log('database', `🏷️ Clasificación: ${ok} actualizadas${fail ? ', ' + fail + ' con error' : ''}.`);
+            }
+            await loadDatabase(false);
+        }
+        
+        async function adjustVolume(deltaDb) {
+            if (!selectedVideoId) return;
+            hideContextMenu();
+            log('database', `🔊 Ajustando volumen ${deltaDb > 0 ? '+' : ''}${deltaDb} dB...`);
+            try {
+                const response = await fetch(`/api/database/song/${encodeURIComponent(selectedVideoId)}/volume`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delta_db: deltaDb })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    log('database', `✅ ${data.message}${data.volume_lufs != null ? ' (ahora ' + data.volume_lufs.toFixed(1) + ' LUFS)' : ''}`);
+                    loadDatabase();
+                } else {
+                    log('database', `❌ ${data.error || 'Error al ajustar volumen'}`);
+                }
+            } catch (error) {
                 log('database', `❌ Error: ${error.message}`);
             }
+        }
+        
+        async function redownloadSong() {
+            if (!selectedVideoId) return;
+            hideContextMenu();
+            log('database', `🔄 Volviendo a descargar desde YouTube (rápido)...`);
+            try {
+                const response = await fetch(`/api/database/song/${encodeURIComponent(selectedVideoId)}/redownload`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                if (data.success) {
+                    log('database', `✅ ${data.message}${data.volume_lufs != null ? ' Volumen: ' + data.volume_lufs.toFixed(1) + ' LUFS' : ''}`);
+                    loadDatabase();
+                } else {
+                    log('database', `❌ ${data.error || 'Error al volver a descargar'}`);
+                }
+            } catch (error) {
+                log('database', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function redownloadFullFromContext() {
+            const ids = getTargetVideoIdsForAction();
+            if (ids.length === 0) {
+                alert('Selecciona al menos una canción (o haz clic derecho en una fila).');
+                return;
+            }
+            hideContextMenu();
+            await runRedownloadFull(ids);
+        }
+        
+        async function redownloadFullSelected() {
+            if (selectedVideoIds.size === 0) {
+                alert('Selecciona al menos una canción con los checkboxes.');
+                return;
+            }
+            await runRedownloadFull(Array.from(selectedVideoIds));
+        }
+        
+        async function runRedownloadFull(videoIds) {
+            log('database', `🔄 Volver a descargar (proceso completo): ${videoIds.length} canción(es)...`);
+            try {
+                const response = await fetch('/api/database/redownload-full', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_ids: videoIds })
+                });
+                const data = await response.json();
+                if (!data.success || !data.task_id) {
+                    log('database', `❌ ${data.error || 'Error al iniciar la descarga'}`);
+                    return;
+                }
+                const taskId = data.task_id;
+                const poll = async () => {
+                    const st = await fetch(`/api/database/redownload-full/status/${taskId}`);
+                    const s = await st.json();
+                    if (!s.success) return;
+                    if (s.status === 'running') {
+                        log('database', `⏳ ${s.current_message || (s.current + 1 + '/' + s.total)}`);
+                        setTimeout(poll, 1500);
+                        return;
+                    }
+                    if (s.status === 'completed') {
+                        const results = s.results || [];
+                        const ok = results.filter(r => r.success).length;
+                        const fail = results.filter(r => !r.success).length;
+                        log('database', `✅ Completado: ${ok} correctas, ${fail} con error.`);
+                        results.filter(r => !r.success).forEach(r => log('database', `   ❌ ${r.video_id}: ${r.error || 'Error'}`));
+                        clearDatabaseSelection();
+                        loadDatabase();
+                    } else {
+                        log('database', `❌ Error: ${s.error || 'Desconocido'}`);
+                    }
+                };
+                setTimeout(poll, 800);
+            } catch (error) {
+                log('database', `❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function deleteSelectedSongs() {
+            const ids = Array.from(selectedVideoIds);
+            if (ids.length === 0) return;
+            if (!confirm(`¿Eliminar ${ids.length} canción(es)? Se borrarán los archivos y las entradas de la base de datos.`)) return;
+            hideContextMenu();
+            let ok = 0, fail = 0;
+            for (const videoId of ids) {
+                try {
+                    const response = await fetch('/api/database/delete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ video_id: videoId })
+                    });
+                    const data = await response.json();
+                    if (data.success) ok++; else fail++;
+                } catch (e) { fail++; }
+            }
+            log('database', `🗑️ Eliminadas: ${ok} correctas${fail ? ', ' + fail + ' con error' : ''}.`);
+            clearDatabaseSelection();
+            loadDatabase();
         }
         
         async function playSelectedSong() {
@@ -1754,6 +2649,8 @@
                     document.getElementById('config-music-folder').value = data.config.MUSIC_FOLDER || '';
                     document.getElementById('config-db-path').value = data.config.DB_PATH || '';
                     document.getElementById('config-lastfm-key').value = data.config.LASTFM_API_KEY || '';
+                    const essentiaEl = document.getElementById('config-essentia-classifier');
+                    if (essentiaEl) essentiaEl.value = data.config.ESSENTIA_CLASSIFIER || 'auto';
                     log('config', '✅ Configuración cargada correctamente');
                 } else {
                     log('config', `❌ Error: ${data.error || 'Error desconocido'}`);
@@ -2016,7 +2913,8 @@
             const config = {
                 MUSIC_FOLDER: document.getElementById('config-music-folder').value,
                 DB_PATH: document.getElementById('config-db-path').value,
-                LASTFM_API_KEY: document.getElementById('config-lastfm-key').value
+                LASTFM_API_KEY: document.getElementById('config-lastfm-key').value,
+                ESSENTIA_CLASSIFIER: (document.getElementById('config-essentia-classifier') || {}).value || 'auto'
             };
             
             clearLog('config');
@@ -2044,7 +2942,8 @@
             const config = {
                 MUSIC_FOLDER: document.getElementById('config-music-folder').value,
                 DB_PATH: document.getElementById('config-db-path').value,
-                LASTFM_API_KEY: document.getElementById('config-lastfm-key').value
+                LASTFM_API_KEY: document.getElementById('config-lastfm-key').value,
+                ESSENTIA_CLASSIFIER: (document.getElementById('config-essentia-classifier') || {}).value || 'auto'
             };
             
             clearLog('config');
@@ -2077,6 +2976,8 @@
                     log('config', '✅ Configuración aplicada correctamente');
                     log('config', `📁 Carpeta de música: ${reloadData.config.MUSIC_FOLDER}`);
                     log('config', `🗄️ Base de datos: ${reloadData.config.DB_PATH || 'Por defecto'}`);
+                    const essentiaReload = document.getElementById('config-essentia-classifier');
+                    if (essentiaReload && reloadData.config.ESSENTIA_CLASSIFIER) essentiaReload.value = reloadData.config.ESSENTIA_CLASSIFIER;
                 } else {
                     log('config', `❌ Error al aplicar: ${reloadData.error}`);
                 }

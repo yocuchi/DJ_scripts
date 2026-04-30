@@ -67,7 +67,6 @@ from download_youtube import (
     detect_genre_online, get_output_folder, check_file_exists,
     register_song_in_db, add_id3_tags, monitor_liked_videos,
     save_rejected_video, is_rejected_video, sanitize_filename,
-    check_and_normalize_audio,
     get_liked_videos, get_genre_from_title_keywords, get_liked_videos_from_url,
     get_genre_from_database, get_genre_from_video_tags, get_genre_from_channel_name,
     get_genre_from_description_deep, get_genre_from_lastfm, get_genre_from_musicbrainz,
@@ -1153,10 +1152,7 @@ class MusicDownloaderGUI:
                     
                     self.log(f"✓ Archivo descargado: {mp3_file.name}")
                     
-                    # 8. Verificar y normalizar volumen
-                    self.log(f"🔊 Verificando volumen...")
-                    check_and_normalize_audio(str(mp3_file))
-                    
+                    # 8. No normalizar volumen en descarga (se mide y guarda en BD)
                     # 9. Si no se detectó género, intentar con Essentia (análisis de audio)
                     if not metadata.get('genre') or metadata.get('genre', '').lower() in ['sin clasificar', 'unknown', '']:
                         self.log(f"🔍 Intentando detectar género con análisis de audio...")
@@ -1336,9 +1332,7 @@ class MusicDownloaderGUI:
                         self.log("❌ Error: No se encontró el archivo descargado.")
                         return
                 
-                # Verificar y normalizar volumen si es necesario
-                check_and_normalize_audio(str(mp3_file))
-                
+                # No normalizar volumen en descarga (se mide y guarda en BD)
                 self.log("🏷️ Añadiendo metadatos...")
                 add_id3_tags(str(mp3_file), metadata, video_info)
                 
@@ -3068,10 +3062,7 @@ class MusicDownloaderGUI:
                     
                     self.monitor_log(f"  ✓ Archivo descargado: {mp3_file.name}")
                     
-                    # Verificar y normalizar volumen si es necesario
-                    self.monitor_log(f"  🔊 Verificando volumen...")
-                    check_and_normalize_audio(str(mp3_file))
-                    
+                    # No normalizar volumen en descarga (se mide y guarda en BD)
                     self.monitor_log(f"  🏷️  Añadiendo metadatos ID3...")
                     add_id3_tags(str(mp3_file), metadata, video_info)
                     
@@ -3249,10 +3240,7 @@ class MusicDownloaderGUI:
                         
                         self.monitor_log(f"  ✓ Archivo descargado: {mp3_file.name}")
                         
-                        # Verificar y normalizar volumen si es necesario
-                        self.monitor_log(f"  🔊 Verificando volumen...")
-                        check_and_normalize_audio(str(mp3_file))
-                        
+                        # No normalizar volumen en descarga (se mide y guarda en BD)
                         self.monitor_log(f"  🏷️  Añadiendo metadatos ID3...")
                         add_id3_tags(str(mp3_file), metadata, video_info)
                         

@@ -8,6 +8,7 @@ import os
 import sys
 import re
 import json
+import struct
 import urllib.parse
 import urllib.request
 import subprocess
@@ -47,6 +48,8 @@ try:
 except ImportError:
     TF_CLASSIFIER_AVAILABLE = False
 
+# No normalizar volumen al descargar: el audio se guarda tal cual; solo se mide el volumen (LUFS) para la BD.
+NORMALIZE_VOLUME_ON_DOWNLOAD = False
 
 
 def test_essentia_installation():
@@ -640,6 +643,10 @@ def get_genre_from_essentia(file_path: str) -> Optional[str]:
     """
     Detecta el género musical analizando el archivo de audio con Essentia.
     Usa modelos TensorFlow preentrenados (Discogs-EffNet) si están disponibles.
+    Comportamiento según ESSENTIA_CLASSIFIER en .env:
+    - auto (por defecto): intenta TensorFlow primero, luego Legacy MusicNN.
+    - tf: solo TensorFlow/Discogs (más preciso, requiere modelos descargados).
+    - legacy: solo TaggerMusicNN (Legacy).
     
     Args:
         file_path: Ruta al archivo de audio (MP3, WAV, etc.)
@@ -653,8 +660,12 @@ def get_genre_from_essentia(file_path: str) -> Optional[str]:
     if not Path(file_path).exists():
         return None
     
+    mode = (os.environ.get('ESSENTIA_CLASSIFIER') or 'auto').strip().lower()
+    use_tf = mode != 'legacy' and TF_CLASSIFIER_AVAILABLE
+    use_legacy = mode != 'tf'
+    
     # 1. Intentar usar el clasificador TensorFlow (más preciso)
-    if TF_CLASSIFIER_AVAILABLE:
+    if use_tf:
         try:
             print("   ⏳ Analizando audio con Essentia (TensorFlow/Discogs)...")
             genre = get_best_genre(file_path)
@@ -662,22 +673,25 @@ def get_genre_from_essentia(file_path: str) -> Optional[str]:
                 return genre
         except Exception as e:
             print(f"   ⚠️ Error en clasificador TF: {e}")
+        if mode == 'tf':
+            return None  # Solo TF configurado y no dio resultado
 
-    try:
-        # Fallback: Implementación original con TaggerMusicNN (si TF falla o no da resultado)
-        print("   ⏳ Analizando audio con Essentia (Legacy MusicNN)...")
-        # Cargar el archivo de audio
-        loader = es.MonoLoader(filename=file_path)
-        audio = loader()
-        
-        # Intentar usar TaggerMusicNN (modelo preentrenado para clasificación)
-        # Este modelo clasifica en múltiples etiquetas incluyendo géneros
+    if use_legacy:
         try:
-            tagger = es.TaggerMusicNN()
-            predictions = tagger(audio)
+            # Fallback: Implementación original con TaggerMusicNN (si TF falla o no da resultado)
+            print("   ⏳ Analizando audio con Essentia (Legacy MusicNN)...")
+            # Cargar el archivo de audio
+            loader = es.MonoLoader(filename=file_path)
+            audio = loader()
             
-            # Mapeo de etiquetas comunes de Essentia a géneros del proyecto
-            genre_mapping = {
+            # Intentar usar TaggerMusicNN (modelo preentrenado para clasificación)
+            # Este modelo clasifica en múltiples etiquetas incluyendo géneros
+            try:
+                tagger = es.TaggerMusicNN()
+                predictions = tagger(audio)
+                
+                # Mapeo de etiquetas comunes de Essentia a géneros del proyecto
+                genre_mapping = {
                 # Electronic
                 'electronic': 'Electronic',
                 'house': 'House',
@@ -748,105 +762,107 @@ def get_genre_from_essentia(file_path: str) -> Optional[str]:
                 'bachata': 'Bachata',
                 'funk': 'Funk',
                 'disco': 'Disco',
-            }
-            
-            # Buscar el género con mayor probabilidad
-            if isinstance(predictions, dict):
-                # Si es un diccionario, buscar la etiqueta con mayor valor
-                best_tag = max(predictions.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0)
-                tag_name = best_tag[0].lower()
+                }
                 
-                # Buscar en el mapeo
-                for key, genre in genre_mapping.items():
-                    if key.lower() in tag_name or tag_name in key.lower():
-                        return genre
+                # Buscar el género con mayor probabilidad
+                if isinstance(predictions, dict):
+                    # Si es un diccionario, buscar la etiqueta con mayor valor
+                    best_tag = max(predictions.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0)
+                    tag_name = best_tag[0].lower()
+                    
+                    # Buscar en el mapeo
+                    for key, genre in genre_mapping.items():
+                        if key.lower() in tag_name or tag_name in key.lower():
+                            return genre
+                    
+                    # Si no está en el mapeo pero parece un género, devolverlo capitalizado
+                    if best_tag[1] > 0.3:  # Umbral de confianza
+                        return tag_name.title()
                 
-                # Si no está en el mapeo pero parece un género, devolverlo capitalizado
-                if best_tag[1] > 0.3:  # Umbral de confianza
-                    return tag_name.title()
-            
-            elif isinstance(predictions, list):
-                # Si es una lista, buscar géneros en las etiquetas
-                for tag in predictions:
-                    if isinstance(tag, (list, tuple)) and len(tag) >= 2:
-                        tag_name = str(tag[0]).lower()
-                        confidence = float(tag[1]) if len(tag) > 1 else 0.0
-                        
-                        if confidence > 0.3:  # Umbral de confianza
+                elif isinstance(predictions, list):
+                    # Si es una lista, buscar géneros en las etiquetas
+                    for tag in predictions:
+                        if isinstance(tag, (list, tuple)) and len(tag) >= 2:
+                            tag_name = str(tag[0]).lower()
+                            confidence = float(tag[1]) if len(tag) > 1 else 0.0
+                            
+                            if confidence > 0.3:  # Umbral de confianza
+                                for key, genre in genre_mapping.items():
+                                    if key.lower() in tag_name or tag_name in key.lower():
+                                        return genre
+                        elif isinstance(tag, str):
+                            tag_lower = tag.lower()
                             for key, genre in genre_mapping.items():
-                                if key.lower() in tag_name or tag_name in key.lower():
+                                if key.lower() in tag_lower or tag_lower in key.lower():
                                     return genre
-                    elif isinstance(tag, str):
-                        tag_lower = tag.lower()
-                        for key, genre in genre_mapping.items():
-                            if key.lower() in tag_lower or tag_lower in key.lower():
-                                return genre
             
-        except (AttributeError, RuntimeError, Exception) as e:
-            # Si TaggerMusicNN no está disponible, usar análisis de características básicas
-            pass
-        
-        # Método alternativo: análisis de características de audio
-        # Extraer características que pueden indicar el género
-        try:
-            # Extraer tempo (BPM)
-            rhythm_extractor = es.RhythmExtractor2013(method="multifeature")
-            bpm, beats, beats_confidence, _, beats_intervals = rhythm_extractor(audio)
-            
-            # Extraer key (tonalidad)
-            key_extractor = es.KeyExtractor()
-            key, scale, strength = key_extractor(audio)
-            
-            # Extraer características espectrales (opcional, puede no estar disponible)
-            avg_centroid = 0
-            try:
-                spectral_centroid = es.SpectralCentroid()
-                centroid = spectral_centroid(audio)
-                avg_centroid = float(sum(centroid) / len(centroid)) if len(centroid) > 0 else 0
-            except (AttributeError, Exception):
-                # SpectralCentroid no está disponible, usar valor por defecto
+            except (AttributeError, RuntimeError, Exception) as e:
+                # Si TaggerMusicNN no está disponible, usar análisis de características básicas
                 pass
             
-            # Extraer energía
-            energy = es.Energy()
-            energy_value = energy(audio)
-            avg_energy = float(sum(energy_value) / len(energy_value)) if len(energy_value) > 0 else 0
+            # Método alternativo: análisis de características de audio
+            # Extraer características que pueden indicar el género
+            try:
+                # Extraer tempo (BPM)
+                rhythm_extractor = es.RhythmExtractor2013(method="multifeature")
+                bpm, beats, beats_confidence, _, beats_intervals = rhythm_extractor(audio)
+                
+                # Extraer key (tonalidad)
+                key_extractor = es.KeyExtractor()
+                key, scale, strength = key_extractor(audio)
+                
+                # Extraer características espectrales (opcional, puede no estar disponible)
+                avg_centroid = 0
+                try:
+                    spectral_centroid = es.SpectralCentroid()
+                    centroid = spectral_centroid(audio)
+                    avg_centroid = float(sum(centroid) / len(centroid)) if len(centroid) > 0 else 0
+                except (AttributeError, Exception):
+                    # SpectralCentroid no está disponible, usar valor por defecto
+                    pass
+                
+                # Extraer energía
+                energy = es.Energy()
+                energy_value = energy(audio)
+                avg_energy = float(sum(energy_value) / len(energy_value)) if len(energy_value) > 0 else 0
+                
+                # Reglas heurísticas para géneros electrónicos comunes
+                if bpm >= 120 and bpm <= 130:
+                    if avg_energy > 0.5:
+                        return 'House'
+                    else:
+                        return 'Deep House'
+                elif bpm >= 130 and bpm <= 140:
+                    if avg_energy > 0.6:
+                        return 'Techno'
+                    else:
+                        return 'Tech House'
+                elif bpm >= 138 and bpm <= 145:
+                    return 'Trance'
+                elif bpm >= 160 and bpm <= 180:
+                    return 'Drum & Bass'
+                elif bpm >= 140 and bpm <= 150:
+                    if avg_energy > 0.7:
+                        return 'Dubstep'
+                    else:
+                        return 'Trap'
+                elif bpm < 100:
+                    if avg_energy < 0.3:
+                        return 'Ambient'
+                    else:
+                        return 'Downtempo'
+                
+            except Exception as e:
+                # Si falla el análisis de características, devolver None
+                pass
             
-            # Reglas heurísticas para géneros electrónicos comunes
-            if bpm >= 120 and bpm <= 130:
-                if avg_energy > 0.5:
-                    return 'House'
-                else:
-                    return 'Deep House'
-            elif bpm >= 130 and bpm <= 140:
-                if avg_energy > 0.6:
-                    return 'Techno'
-                else:
-                    return 'Tech House'
-            elif bpm >= 138 and bpm <= 145:
-                return 'Trance'
-            elif bpm >= 160 and bpm <= 180:
-                return 'Drum & Bass'
-            elif bpm >= 140 and bpm <= 150:
-                if avg_energy > 0.7:
-                    return 'Dubstep'
-                else:
-                    return 'Trap'
-            elif bpm < 100:
-                if avg_energy < 0.3:
-                    return 'Ambient'
-                else:
-                    return 'Downtempo'
-            
+            return None
+        
         except Exception as e:
-            # Si falla el análisis de características, devolver None
-            pass
-        
-        return None
-        
-    except Exception as e:
-        # Si hay cualquier error, devolver None silenciosamente
-        return None
+            # Si hay cualquier error, devolver None silenciosamente
+            return None
+    
+    return None
 
 
 def detect_genre_online(artist: Optional[str], track: str, video_info: Optional[Dict] = None, 
@@ -1594,78 +1610,155 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
     return False
 
 
-def check_audio_volume(file_path: str) -> Optional[float]:
+def check_audio_volume(file_path: str) -> Tuple[Optional[float], Optional[str]]:
     """
     Verifica el volumen promedio del archivo de audio usando ffmpeg.
-    
+
     Returns:
-        Volumen promedio en dB (LUFS) o None si hay error.
+        (volumen_lufs, error): Volumen en LUFS o None si hay error; mensaje de error si falló.
         Valores típicos: -23.0 LUFS (estándar EBU R128), más bajo = más silencioso
     """
+    def _last_lines(txt: str, n: int = 5) -> str:
+        lines = [l.strip() for l in (txt or '').splitlines() if l.strip()]
+        return '\n'.join(lines[-n:]) if lines else (txt or '')[:500]
+
     if not shutil.which('ffmpeg'):
-        return None
-    
+        return None, 'ffmpeg no está instalado o no está en el PATH'
+
+    last_output = ''
     try:
         # Usar ffmpeg para analizar el volumen (EBU R128 loudness)
+        # -vn = solo audio, ignora portada/streams de video embebidos (evita fallos con mjpeg dañado)
         cmd = [
             'ffmpeg',
             '-i', file_path,
+            '-vn',
             '-af', 'loudnorm=I=-23.0:TP=-2.0:LRA=7.0:print_format=json',
             '-f', 'null',
             '-'
         ]
-        
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            stderr=subprocess.STDOUT,
-            timeout=60
+            timeout=60,
+            encoding='utf-8',
+            errors='replace'
         )
-        
-        # Buscar el JSON en la salida
-        output = result.stdout + result.stderr
+        # En Windows ffmpeg escribe mucho en stderr; unir ambas salidas
+        output = (result.stdout or '') + (result.stderr or '')
+        last_output = output
         json_start = output.find('{')
         if json_start != -1:
             json_str = output[json_start:]
             json_end = json_str.rfind('}') + 1
             if json_end > 0:
                 data = json.loads(json_str[:json_end])
-                # Obtener el input_i (volumen promedio en LUFS)
                 input_i = data.get('input_i')
                 if input_i is not None:
-                    return float(input_i)
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, ValueError, KeyError) as e:
-        # Si falla, intentar método alternativo más simple
+                    return float(input_i), None
+    except subprocess.TimeoutExpired:
+        return None, 'ffmpeg tardó demasiado (timeout)'
+    except (json.JSONDecodeError, ValueError, KeyError):
         pass
-    
-    # Método alternativo: usar volumedetect
+
+    # Método alternativo: volumedetect (-vn = solo audio, ignora portada embebida)
     try:
         cmd = [
             'ffmpeg',
             '-i', file_path,
+            '-vn',
             '-af', 'volumedetect',
             '-f', 'null',
             '-'
         ]
-        
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            stderr=subprocess.STDOUT,
-            timeout=60
+            timeout=60,
+            encoding='utf-8',
+            errors='replace'
         )
-        
-        output = result.stdout + result.stderr
-        # Buscar mean_volume en la salida
-        match = re.search(r'mean_volume:\s*([-\d.]+)\s*dB', output)
+        # En Windows ffmpeg escribe en stderr; unir ambas salidas
+        output = (result.stdout or '') + (result.stderr or '')
+        last_output = output
+        # Aceptar punto o coma como decimal (locale)
+        match = re.search(r'mean_volume:\s*([-\d]+[.,][\d]+)\s*dB', output)
         if match:
-            return float(match.group(1))
-    except (subprocess.TimeoutExpired, ValueError) as e:
+            vol_str = match.group(1).replace(',', '.')
+            return float(vol_str), None
+    except subprocess.TimeoutExpired:
+        return None, 'ffmpeg tardó demasiado (timeout)'
+    except ValueError:
         pass
-    
-    return None
+
+    # Log en consola del servidor para depurar (qué recibió Python de ffmpeg)
+    print("[check_audio_volume] FFmpeg no devolvió volumen. Salida recibida:")
+    print("---")
+    print((last_output or "(vacío)")[-4000:])  # últimos 4000 chars para no saturar
+    print("---")
+
+    err = _last_lines(last_output) or 'ffmpeg no devolvió volumen'
+    return None, err
+
+
+def generate_waveform_data(file_path: str, num_points: int = 120) -> Optional[list]:
+    """
+    Genera una lista de valores normalizados (0.0–1.0) que representan la forma de onda
+    de toda la canción, para mostrar una línea de onda en la interfaz.
+
+    Usa ffmpeg para extraer PCM (mono, 16-bit) y promedia por bloques.
+
+    Args:
+        file_path: Ruta al archivo de audio (MP3, etc.).
+        num_points: Número de puntos de la onda (por defecto 120).
+
+    Returns:
+        Lista de floats entre 0 y 1, o None si hay error.
+    """
+    if not shutil.which('ffmpeg'):
+        return None
+    path = Path(file_path)
+    if not path.exists():
+        return None
+    try:
+        cmd = [
+            'ffmpeg', '-i', str(path),
+            '-vn', '-acodec', 'pcm_s16le', '-f', 's16le', '-ac', '1',
+            '-'
+        ]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+        )
+        raw = proc.stdout.read()
+        proc.wait(timeout=120)
+        if not raw or len(raw) < 2:
+            return None
+        # Cada 2 bytes = 1 sample signed 16-bit little endian
+        samples = []
+        for i in range(0, len(raw), 2):
+            if i + 2 <= len(raw):
+                samples.append(abs(struct.unpack('<h', raw[i:i + 2])[0]))
+        if not samples:
+            return None
+        # Downsample a num_points: por cada segmento, valor máximo normalizado
+        chunk_size = max(1, len(samples) // num_points)
+        waveform = []
+        for i in range(num_points):
+            start = i * chunk_size
+            end = min(start + chunk_size, len(samples))
+            if start >= len(samples):
+                break
+            segment = samples[start:end]
+            max_val = max(segment) if segment else 0
+            waveform.append(max_val / 32768.0)
+        return waveform[:num_points]
+    except (subprocess.TimeoutExpired, OSError, struct.error, ValueError):
+        return None
 
 
 def normalize_audio_volume(file_path: str, target_lufs: float = -23.0) -> bool:
@@ -1727,9 +1820,48 @@ def normalize_audio_volume(file_path: str, target_lufs: float = -23.0) -> bool:
         return False
 
 
+def apply_volume_offset(file_path: str, offset_db: float) -> bool:
+    """
+    Aplica un ajuste de volumen al archivo de audio (subir o bajar en dB).
+    Modifica el archivo en disco.
+    
+    Args:
+        file_path: Ruta al archivo de audio
+        offset_db: Ajuste en dB (positivo = más volumen, negativo = menos)
+    
+    Returns:
+        True si se aplicó correctamente, False en caso contrario
+    """
+    if not shutil.which('ffmpeg'):
+        return False
+    path = Path(file_path)
+    if not path.exists():
+        return False
+    try:
+        temp_file = str(path.with_suffix('.tmp.vol.mp3'))
+        # volume=XdB en ffmpeg
+        cmd = [
+            'ffmpeg', '-y', '-i', file_path,
+            '-af', f'volume={offset_db:+.1f}dB',
+            '-ar', '44100', '-b:a', '320k',
+            temp_file
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode == 0 and Path(temp_file).exists():
+            path.unlink()
+            Path(temp_file).rename(file_path)
+            return True
+        if Path(temp_file).exists():
+            Path(temp_file).unlink()
+        return False
+    except Exception:
+        return False
+
+
 def check_and_normalize_audio(file_path: str, threshold_lufs: float = -26.0) -> bool:
     """
     Verifica el volumen del archivo y lo normaliza si está por debajo del umbral.
+    No se usa en la descarga: NORMALIZE_VOLUME_ON_DOWNLOAD = False (el audio se guarda sin normalizar).
     
     Args:
         file_path: Ruta al archivo MP3
@@ -1741,7 +1873,7 @@ def check_and_normalize_audio(file_path: str, threshold_lufs: float = -26.0) -> 
     """
     print("   🔊 Verificando volumen del audio...")
     
-    volume = check_audio_volume(file_path)
+    volume, _ = check_audio_volume(file_path)
     
     if volume is None:
         print("   ⚠️  No se pudo verificar el volumen, normalizando de todas formas...")
@@ -2588,8 +2720,7 @@ def monitor_liked_videos(playlist_url: Optional[str] = None):
                             print("   ❌ Error: No se encontró el archivo descargado.")
                             break
                     
-                    # Verificar y normalizar volumen si es necesario
-                    check_and_normalize_audio(str(mp3_file))
+                    # No normalizar volumen en la descarga (se mide y guarda en BD)
                     
                     # Si no se detectó género, intentar con Essentia (análisis de audio)
                     if not metadata.get('genre') or metadata.get('genre', '').lower() in ['sin clasificar', 'unknown', '']:
@@ -2653,6 +2784,14 @@ def get_mp3_bitrate(file_path: Path) -> Optional[int]:
     return None
 
 
+def _save_waveform_for_song(video_id: str, file_path: str) -> None:
+    """Genera la forma de onda de la canción y la guarda en la base de datos."""
+    waveform = generate_waveform_data(file_path)
+    if waveform is not None:
+        db.update_song(video_id, waveform_data=json.dumps(waveform))
+        print("   〰️  Waveform generado y guardado.")
+
+
 def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict, video_info: Dict, download_source: Optional[str] = None):
     """
     Registra una canción descargada en la base de datos.
@@ -2693,6 +2832,9 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
     # Obtener bitrate del archivo MP3
     bitrate_kbps = get_mp3_bitrate(file_path)
     
+    # Medir volumen del archivo (LUFS) para tenerlo en BD — sin normalizar
+    volume_lufs, _ = check_audio_volume(str(file_path))
+    
     # Verificar si ya existe antes de intentar añadir
     existing_song = db.get_song_by_video_id(video_id)
     if existing_song:
@@ -2707,7 +2849,8 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
             'file_path': str(file_path),
             'file_size': file_size,
             'file_type': file_type,
-            'bitrate_kbps': bitrate_kbps
+            'bitrate_kbps': bitrate_kbps,
+            'volume_lufs': volume_lufs
         }
         # También actualizar metadatos si han cambiado
         if metadata.get('title'):
@@ -2722,6 +2865,7 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
         
         if db.update_song(video_id, **update_data):
             print(f"✅ Canción actualizada en la base de datos con nueva información.")
+            _save_waveform_for_song(video_id, str(file_path))
         else:
             print(f"⚠️  No se pudo actualizar la canción existente, pero ya está en la base de datos.")
         return
@@ -2743,7 +2887,9 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
             thumbnail_url=thumbnail_url,
             description=description,
             download_source=download_source,
-            bitrate_kbps=bitrate_kbps
+            bitrate_kbps=bitrate_kbps,
+            volume_lufs=volume_lufs,
+            volume_offset_db=0
         )
         
         if success:
@@ -2751,6 +2897,7 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
             print(f"   Video ID: {video_id}")
             print(f"   Artista: {metadata.get('artist', 'N/A')}")
             print(f"   📍 Puedes encontrarla en la pestaña 'Base de Datos' buscando por: '{metadata.get('title', 'Unknown')}'")
+            _save_waveform_for_song(video_id, str(file_path))
         else:
             print(f"⚠️  Error: No se pudo registrar la canción en la base de datos.")
             print(f"   Video ID: {video_id}")
@@ -2792,6 +2939,7 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
                         print(f"      Título: {metadata.get('title', 'Unknown')}")
                         print(f"      Artista: {metadata.get('artist', 'N/A')}")
                         print(f"      📍 Ahora puedes encontrarla en la base de datos con video_id '{video_id}'")
+                        _save_waveform_for_song(video_id, str(file_path))
                         return
                     else:
                         print(f"   ❌ No se pudo actualizar el video_id de la canción existente.")
@@ -2810,6 +2958,109 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
         print(f"   Título: {metadata.get('title', 'Unknown')}")
         import traceback
         traceback.print_exc()
+
+
+def redownload_full(video_id: str, progress_callback=None) -> Tuple[bool, Optional[str]]:
+    """
+    Vuelve a descargar una canción con todo el proceso: extracción de metadatos,
+    detección de género, carpeta por género/año, descarga, ID3 y registro en BD.
+    Si la canción se guarda en otra carpeta, se elimina el archivo viejo.
+
+    Args:
+        video_id: ID del video de YouTube (canción ya en BD).
+        progress_callback: Opcional, función(status_str) para reportar progreso.
+
+    Returns:
+        (éxito: bool, mensaje_error: Optional[str])
+    """
+    def report(msg: str) -> None:
+        if progress_callback:
+            progress_callback(msg)
+
+    song = db.get_song_by_video_id(video_id)
+    if not song:
+        return False, 'Canción no encontrada en la base de datos'
+
+    url = song.get('url', '')
+    if not url or 'youtube' not in url.lower():
+        return False, 'No hay URL de YouTube para esta canción'
+
+    old_file_path = song.get('file_path', '')
+    if not old_file_path:
+        return False, 'No hay ruta de archivo'
+
+    old_path_obj = Path(old_file_path)
+
+    try:
+        report('Obteniendo información del video...')
+        video_info = get_video_info(url)
+        if not video_info:
+            return False, 'No se pudo obtener información del video'
+
+        title = video_info.get('title', '')
+        description = video_info.get('description', '')
+        report('Extrayendo metadatos del título...')
+        metadata = extract_metadata_from_title(title, description, video_info)
+
+        if not metadata.get('genre'):
+            report('Detectando género...')
+            detected_genre = detect_genre_online(
+                metadata.get('artist'),
+                metadata.get('title', title),
+                video_info=video_info,
+                title=title,
+                description=description
+            )
+            if detected_genre:
+                metadata['genre'] = detected_genre
+            else:
+                metadata['genre'] = 'Sin Clasificar'
+
+        report('Preparando carpeta de salida...')
+        output_folder = get_output_folder(MUSIC_FOLDER, metadata.get('genre'), metadata.get('year'))
+
+        if metadata.get('artist'):
+            filename = f"{metadata['artist']} - {metadata['title']}"
+        else:
+            filename = metadata.get('title', title)
+        filename = sanitize_filename(filename)
+        output_path = output_folder / filename
+
+        report('Descargando audio...')
+        if not download_audio(url, str(output_path), metadata, progress_callback=None):
+            return False, 'Error en la descarga'
+
+        mp3_file = Path(str(output_path) + '.mp3')
+        if not mp3_file.exists():
+            mp3_files = list(output_folder.glob(f"{filename}*.mp3"))
+            mp3_file = mp3_files[0] if mp3_files else mp3_file
+
+        if not metadata.get('genre') or (str(metadata.get('genre', '')).lower() in ['sin clasificar', 'unknown', '']):
+            detected_genre = detect_genre_from_audio_file(str(mp3_file))
+            if detected_genre:
+                metadata['genre'] = detected_genre
+
+        report('Añadiendo metadatos ID3...')
+        add_id3_tags(str(mp3_file), metadata, video_info)
+
+        report('Registrando en base de datos...')
+        register_song_in_db(video_id, url, mp3_file, metadata, video_info, download_source='puntual')
+
+        # Si el archivo nuevo está en otra ruta, eliminar el viejo
+        new_path_resolved = mp3_file.resolve()
+        if old_path_obj.exists():
+            old_resolved = old_path_obj.resolve()
+            if old_resolved != new_path_resolved:
+                try:
+                    old_path_obj.unlink()
+                except OSError:
+                    pass  # No crítico si falla
+
+        return True, None
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return False, str(e)
 
 
 def add_id3_tags(file_path: str, metadata: Dict, video_info: Dict):
@@ -3382,8 +3633,7 @@ def main():
                 print("Error: No se encontró el archivo descargado.")
                 sys.exit(1)
         
-        # Verificar y normalizar volumen si es necesario
-        check_and_normalize_audio(str(mp3_file))
+        # No normalizar volumen en la descarga (se mide y guarda en BD)
         
         # Si no se detectó género, intentar con Essentia (análisis de audio)
         if not metadata.get('genre') or metadata.get('genre', '').lower() in ['sin clasificar', 'unknown', '']:

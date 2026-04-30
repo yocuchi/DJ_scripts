@@ -190,6 +190,21 @@ class MusicDatabase:
             # La columna ya existe, no hacer nada
             pass
         
+        try:
+            cursor.execute('ALTER TABLE songs ADD COLUMN volume_lufs REAL')
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            cursor.execute('ALTER TABLE songs ADD COLUMN volume_offset_db REAL DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            cursor.execute('ALTER TABLE songs ADD COLUMN waveform_data TEXT')
+        except sqlite3.OperationalError:
+            pass
+        
         # Índices para búsquedas rápidas
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_video_id ON songs(video_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_artist ON songs(artist)')
@@ -248,7 +263,8 @@ class MusicDatabase:
                  file_size: Optional[int] = None, file_type: Optional[str] = None,
                  duration: Optional[float] = None,
                  thumbnail_url: Optional[str] = None, description: Optional[str] = None,
-                 download_source: Optional[str] = None, bitrate_kbps: Optional[int] = None) -> bool:
+                 download_source: Optional[str] = None, bitrate_kbps: Optional[int] = None,
+                 volume_lufs: Optional[float] = None, volume_offset_db: Optional[float] = None) -> bool:
         """
         Añade una canción a la base de datos.
         
@@ -263,10 +279,11 @@ class MusicDatabase:
                 cursor.execute('''
                     INSERT INTO songs (
                         video_id, url, title, artist, year, genre, decade,
-                        file_path, file_size, file_type, duration, thumbnail_url, description, download_source, bitrate_kbps
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        file_path, file_size, file_type, duration, thumbnail_url, description, download_source, bitrate_kbps, volume_lufs, volume_offset_db
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (video_id, url, title, artist, year, genre, decade,
-                      str(file_path), file_size, file_type, duration, thumbnail_url, description, download_source, bitrate_kbps))
+                      str(file_path), file_size, file_type, duration, thumbnail_url, description, download_source, bitrate_kbps,
+                      volume_lufs, volume_offset_db if volume_offset_db is not None else 0))
                 
                 # Registrar en historial
                 cursor.execute('''
@@ -310,7 +327,7 @@ class MusicDatabase:
             
             # Construir query de actualización
             allowed_fields = ['title', 'artist', 'year', 'genre', 'decade', 'file_path',
-                             'file_size', 'file_type', 'duration', 'thumbnail_url', 'description', 'download_source', 'bitrate_kbps']
+                             'file_size', 'file_type', 'duration', 'thumbnail_url', 'description', 'download_source', 'bitrate_kbps', 'volume_lufs', 'volume_offset_db', 'waveform_data']
             
             updates = []
             values = []
@@ -353,7 +370,7 @@ class MusicDatabase:
             
             # Construir query de actualización
             allowed_fields = ['url', 'title', 'artist', 'year', 'genre', 'decade', 'file_path',
-                             'file_size', 'file_type', 'duration', 'thumbnail_url', 'description', 'download_source', 'bitrate_kbps']
+                             'file_size', 'file_type', 'duration', 'thumbnail_url', 'description', 'download_source', 'bitrate_kbps', 'volume_lufs', 'volume_offset_db', 'waveform_data']
             
             updates = ['video_id = ?']
             values = [new_video_id]
@@ -590,6 +607,37 @@ class MusicDatabase:
         
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
+    
+    def get_duplicate_songs(self) -> List[Dict]:
+        """
+        Busca canciones duplicadas por título + artista (normalizado).
+        Devuelve una lista de grupos; cada grupo tiene 'key' (artista - título) y 'songs' (lista de canciones).
+        Solo se incluyen grupos con más de una canción.
+        """
+        songs = self.get_all_songs(limit=None)
+        key_to_songs: Dict[str, List[Dict]] = {}
+        for song in songs:
+            title = (song.get('title') or '').strip()
+            artist = (song.get('artist') or '').strip()
+            norm_title = title.lower()
+            norm_artist = artist.lower()
+            key = f"{norm_artist}|||{norm_title}" if (norm_title or norm_artist) else f"_sin_metadato_{song.get('video_id', '')}"
+            if key not in key_to_songs:
+                key_to_songs[key] = []
+            key_to_songs[key].append(song)
+        groups = []
+        for key, group_songs in key_to_songs.items():
+            if len(group_songs) < 2:
+                continue
+            # Mostrar clave legible (artista - título) usando el primer elemento
+            first = group_songs[0]
+            label = f"{first.get('artist') or '(sin artista)'} - {first.get('title') or '(sin título)'}"
+            groups.append({
+                'key': label,
+                'count': len(group_songs),
+                'songs': group_songs
+            })
+        return groups
     
     def get_statistics(self) -> Dict:
         """Obtiene estadísticas de la base de datos."""
