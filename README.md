@@ -1,3 +1,6 @@
+<img width="2053" height="1588" alt="image" src="https://github.com/user-attachments/assets/cdb437b5-18e6-4d55-b15d-77ecd9e56dd8" />
+
+
 # Scripts de Descarga de Música de YouTube para DJ
 
 Scripts de Python para descargar canciones de YouTube a MP3 con metadatos completos (artista, año, género) para uso como DJ.
