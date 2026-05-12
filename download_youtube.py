@@ -1165,9 +1165,8 @@ def get_video_info(url: str, log_callback=None) -> Dict:
     log(f"🔍 Obteniendo información de YouTube...")
     log(f"   URL: {url}")
     
-    # Añadir cookies si están disponibles
-    cookies_file = get_cookies_file()
-    
+    has_cookies = has_cookies_configured()
+
     # Función auxiliar: extrae información y captura stderr para poder loguearlo
     def extract_with_captured_stderr(ydl_instance, url):
         """Extrae información y devuelve (info, error, stderr_text)."""
@@ -1183,7 +1182,7 @@ def get_video_info(url: str, log_callback=None) -> Dict:
             return None, e, buf.getvalue()
         finally:
             sys.stderr = old_stderr
-    
+
     # 1) Intentar primero con extract_flat (sin selector de formato) para evitar "Requested format is not available"
     #    en lyric videos, Music, etc. Solo obtenemos id, title, url; el resto se rellena por defecto.
     # Cliente Android a veces evita 403 de YouTube (issue yt-dlp #12482, #14680)
@@ -1196,10 +1195,7 @@ def get_video_info(url: str, log_callback=None) -> Dict:
         'ignoreerrors': True,
         'extractor_args': youtube_extractor_args,
     }
-    if cookies_file:
-        opts_flat['cookiefile'] = cookies_file
-        log(f"   📋 Usando cookies: {cookies_file}")
-    else:
+    if not apply_cookies_to_opts(opts_flat, log_callback=log):
         log(f"   ⚠️  No se encontraron cookies")
     
     log(f"   🔄 Intentando primero modo básico (extract_flat, sin formato)...")
@@ -1229,9 +1225,8 @@ def get_video_info(url: str, log_callback=None) -> Dict:
         'format': 'bestaudio/best/worst',
         'extractor_args': youtube_extractor_args,
     }
-    if cookies_file:
-        ydl_opts['cookiefile'] = cookies_file
-    
+    apply_cookies_to_opts(ydl_opts)
+
     log(f"   🔄 Extrayendo información completa (formato: bestaudio/best/worst)...")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
@@ -1273,8 +1268,7 @@ def get_video_info(url: str, log_callback=None) -> Dict:
                     'ignoreerrors': True,
                     'extractor_args': youtube_extractor_args,
                 }
-                if cookies_file:
-                    ydl_opts_retry['cookiefile'] = cookies_file
+                apply_cookies_to_opts(ydl_opts_retry)
                 log(f"   🔄 Reintento 1/2: extract_flat=True...")
                 with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl_retry:
                     info, err_retry, stderr_retry = extract_with_captured_stderr(ydl_retry, url)
@@ -1320,9 +1314,8 @@ def get_video_info(url: str, log_callback=None) -> Dict:
                         'skip_download': True,
                         'ignoreerrors': True,
                     }
-                    if cookies_file:
-                        ydl_opts_retry['cookiefile'] = cookies_file
-                    
+                    apply_cookies_to_opts(ydl_opts_retry)
+
                     log(f"   🔄 Reintento 1/2: extract_flat=True (sin selector de formato)...")
                     with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl_retry:
                         info, err_retry, stderr_retry = extract_with_captured_stderr(ydl_retry, url)
@@ -1486,9 +1479,8 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
         metadata: Metadatos del video
         progress_callback: Función opcional que se llama con el progreso (recibe un dict con 'status', 'downloaded_bytes', 'total_bytes', etc.)
     """
-    # Añadir cookies si están disponibles
-    cookies_file = get_cookies_file()
-    
+    has_cookies = has_cookies_configured()
+
     # Lista de formatos a intentar en orden de preferencia
     # Empezamos con cadenas que ya incluyen fallbacks para vídeos con formatos limitados (lyric videos, Music, etc.)
     format_attempts = [
@@ -1528,28 +1520,28 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
     }
     
     # Intentar primero con cookies (si están disponibles), luego sin cookies
-    cookie_attempts = [cookies_file] if cookies_file else [None]
-    # Si las cookies fallan, intentar sin ellas
-    if cookies_file:
-        cookie_attempts.append(None)
-    
+    # use_cookies indica si en este intento se aplican las cookies configuradas
+    cookie_attempts = [True] if has_cookies else [False]
+    if has_cookies:
+        cookie_attempts.append(False)
+
     # Intentar con cada formato hasta que uno funcione
     last_error = None
     format_failed = False
-    
-    for cookie_file in cookie_attempts:
-        if format_failed and cookie_file:
+
+    for use_cookies in cookie_attempts:
+        if format_failed and use_cookies:
             # Si todos los formatos fallaron con cookies, intentar sin cookies
             print(f"⚠️  Todos los formatos fallaron con cookies, intentando sin cookies...")
-        
+
         for i, fmt in enumerate(format_attempts):
             ydl_opts = base_opts.copy()
             ydl_opts['format'] = fmt
-            
-            if cookie_file:
-                ydl_opts['cookiefile'] = cookie_file
-            
-            cookies_label = "con cookies" if cookie_file else "sin cookies"
+
+            if use_cookies:
+                apply_cookies_to_opts(ydl_opts)
+
+            cookies_label = "con cookies" if use_cookies else "sin cookies"
             print(f"   📥 Intentando formato ({i+1}/{len(format_attempts)}): {fmt} [{cookies_label}]")
             
             # Suprimir stderr durante la descarga pero capturarlo para logs si falla
@@ -1580,7 +1572,7 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
                     continue
                 # Si es un error de video no disponible, puede ser por cookies, intentar sin cookies
                 elif 'Video unavailable' in error_str or 'Private video' in error_str:
-                    if cookie_file and len(cookie_attempts) > 1:
+                    if use_cookies and len(cookie_attempts) > 1:
                         # Si estamos usando cookies y hay más intentos, marcar para intentar sin cookies
                         format_failed = True
                         break  # Salir del bucle de formatos para intentar sin cookies
@@ -1600,7 +1592,7 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
         print("   - El video fue eliminado o es privado")
         print("   - El video requiere autenticación (verifica tus cookies)")
         print("   - El video está bloqueado geográficamente")
-        if not cookies_file:
+        if not has_cookies:
             print("   - No se encontraron cookies (algunos videos requieren autenticación)")
     else:
         print(f"❌ Error al descargar después de intentar {len(format_attempts)} formatos: {last_error}")
@@ -1820,7 +1812,7 @@ def normalize_audio_volume(file_path: str, target_lufs: float = -23.0) -> bool:
         return False
 
 
-def apply_volume_offset(file_path: str, offset_db: float) -> bool:
+def apply_volume_offset(file_path: str, offset_db: float) -> Tuple[bool, Optional[str]]:
     """
     Aplica un ajuste de volumen al archivo de audio (subir o bajar en dB).
     Modifica el archivo en disco.
@@ -1830,32 +1822,82 @@ def apply_volume_offset(file_path: str, offset_db: float) -> bool:
         offset_db: Ajuste en dB (positivo = más volumen, negativo = menos)
     
     Returns:
-        True si se aplicó correctamente, False en caso contrario
+        (ok, error): ok=True si se aplicó correctamente; error con mensaje en caso contrario.
     """
+    def _last_lines(txt: str, n: int = 6) -> str:
+        lines = [l.strip() for l in (txt or '').splitlines() if l.strip()]
+        return '\n'.join(lines[-n:]) if lines else (txt or '')[:500]
+
     if not shutil.which('ffmpeg'):
-        return False
+        return False, 'ffmpeg no está instalado o no está en el PATH'
     path = Path(file_path)
     if not path.exists():
-        return False
+        return False, f'Archivo no encontrado: {file_path}'
+
+    temp_file = str(path.with_suffix('.tmp.vol.mp3'))
+    last_output = ''
     try:
-        temp_file = str(path.with_suffix('.tmp.vol.mp3'))
-        # volume=XdB en ffmpeg
+        if Path(temp_file).exists():
+            try:
+                Path(temp_file).unlink()
+            except Exception:
+                pass
+
         cmd = [
             'ffmpeg', '-y', '-i', file_path,
+            '-vn',
             '-af', f'volume={offset_db:+.1f}dB',
             '-ar', '44100', '-b:a', '320k',
             temp_file
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode == 0 and Path(temp_file).exists():
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            encoding='utf-8',
+            errors='replace'
+        )
+        last_output = (result.stdout or '') + (result.stderr or '')
+
+        if result.returncode != 0 or not Path(temp_file).exists():
+            if Path(temp_file).exists():
+                try:
+                    Path(temp_file).unlink()
+                except Exception:
+                    pass
+            return False, f'ffmpeg falló (código {result.returncode}): {_last_lines(last_output)}'
+
+        try:
             path.unlink()
+        except PermissionError as e:
+            try:
+                Path(temp_file).unlink()
+            except Exception:
+                pass
+            return False, f'No se pudo reemplazar el archivo original (¿está en uso o sincronizando OneDrive?): {e}'
+
+        try:
             Path(temp_file).rename(file_path)
-            return True
+        except Exception as e:
+            return False, f'No se pudo renombrar el archivo temporal: {e}'
+
+        return True, None
+
+    except subprocess.TimeoutExpired:
         if Path(temp_file).exists():
-            Path(temp_file).unlink()
-        return False
-    except Exception:
-        return False
+            try:
+                Path(temp_file).unlink()
+            except Exception:
+                pass
+        return False, 'ffmpeg tardó demasiado (timeout 300s)'
+    except Exception as e:
+        if Path(temp_file).exists():
+            try:
+                Path(temp_file).unlink()
+            except Exception:
+                pass
+        return False, f'Excepción aplicando volumen: {e}'
 
 
 def check_and_normalize_audio(file_path: str, threshold_lufs: float = -26.0) -> bool:
@@ -1913,6 +1955,11 @@ def save_rejected_video(video_id: str, url: Optional[str] = None,
     db.add_rejected_video(video_id, url=url, title=title, reason=reason)
 
 
+SUPPORTED_COOKIE_BROWSERS = (
+    'brave', 'chrome', 'chromium', 'edge', 'firefox', 'opera', 'safari', 'vivaldi', 'whale'
+)
+
+
 def get_cookies_file() -> Optional[str]:
     """
     Busca y retorna la ruta al archivo de cookies de YouTube.
@@ -1920,7 +1967,7 @@ def get_cookies_file() -> Optional[str]:
     cookies_file = os.getenv('YOUTUBE_COOKIES_FILE', '')
     if cookies_file and Path(cookies_file).exists():
         return cookies_file
-    
+
     # Buscar en ubicaciones comunes
     possible_cookies = [
         Path.home() / 'youtube_cookies.txt',
@@ -1929,49 +1976,111 @@ def get_cookies_file() -> Optional[str]:
     for cookie_path in possible_cookies:
         if cookie_path.exists():
             return str(cookie_path)
-    
+
     return None
+
+
+def get_cookies_browser() -> Optional[tuple]:
+    """
+    Devuelve la configuración de extracción de cookies desde el navegador para yt-dlp.
+
+    Lee la variable de entorno `YOUTUBE_COOKIES_BROWSER` (ej: "chrome", "edge", "firefox", ...).
+    Opcionalmente lee `YOUTUBE_COOKIES_BROWSER_PROFILE` (ej: "Default", "Profile 1").
+
+    Returns:
+        Tupla compatible con yt-dlp `cookiesfrombrowser`:
+            (browser_name,)              si solo se especifica el navegador
+            (browser_name, profile)      si también se especifica el perfil
+        None si no está configurado o el navegador no es válido.
+    """
+    raw = (os.getenv('YOUTUBE_COOKIES_BROWSER', '') or '').strip().lower()
+    if not raw or raw in ('none', 'no', 'off', 'disabled'):
+        return None
+    if raw not in SUPPORTED_COOKIE_BROWSERS:
+        return None
+    profile = (os.getenv('YOUTUBE_COOKIES_BROWSER_PROFILE', '') or '').strip()
+    if profile:
+        return (raw, profile)
+    return (raw,)
+
+
+def apply_cookies_to_opts(ydl_opts: dict, log_callback=None) -> Optional[str]:
+    """
+    Inyecta la configuración de cookies en un dict de opciones de yt-dlp.
+
+    Prioridad: navegador (YOUTUBE_COOKIES_BROWSER) > archivo (YOUTUBE_COOKIES_FILE / youtube_cookies.txt).
+
+    Returns:
+        - "browser:<name>" si se aplicó cookiesfrombrowser
+        - ruta al archivo si se aplicó cookiefile
+        - None si no había cookies configuradas
+    """
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+
+    browser_cfg = get_cookies_browser()
+    if browser_cfg:
+        ydl_opts['cookiesfrombrowser'] = browser_cfg
+        label = f"navegador {browser_cfg[0]}" + (f" (perfil: {browser_cfg[1]})" if len(browser_cfg) > 1 else '')
+        log(f"   📋 Usando cookies del {label}")
+        return f"browser:{browser_cfg[0]}"
+
+    cookies_file = get_cookies_file()
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
+        log(f"   📋 Usando cookies del archivo: {cookies_file}")
+        return cookies_file
+
+    return None
+
+
+def has_cookies_configured() -> bool:
+    """Indica si hay alguna fuente de cookies configurada (archivo o navegador)."""
+    return bool(get_cookies_browser()) or bool(get_cookies_file())
 
 
 def test_cookies() -> bool:
     """
     Prueba si las cookies funcionan correctamente accediendo a YouTube.
-    
+
     Returns:
         True si las cookies funcionan, False en caso contrario.
     """
+    browser_cfg = get_cookies_browser()
     cookies_file = get_cookies_file()
-    
-    if not cookies_file:
-        print("❌ No se encontró archivo de cookies.")
+
+    if not browser_cfg and not cookies_file:
+        print("❌ No se encontró configuración de cookies.")
         print("   Buscado en:")
+        print(f"   - Variable de entorno YOUTUBE_COOKIES_BROWSER (chrome, edge, firefox, ...)")
+        print(f"   - Variable de entorno YOUTUBE_COOKIES_FILE")
         print(f"   - {Path.home() / 'youtube_cookies.txt'}")
         print(f"   - {Path.cwd() / 'youtube_cookies.txt'}")
-        print("   - Variable de entorno YOUTUBE_COOKIES_FILE")
         return False
-    
-    print(f"📋 Archivo de cookies encontrado: {cookies_file}")
-    
-    # Verificar que el archivo existe y tiene contenido
-    cookie_path = Path(cookies_file)
-    if not cookie_path.exists():
-        print(f"❌ El archivo de cookies no existe: {cookies_file}")
-        return False
-    
-    file_size = cookie_path.stat().st_size
-    if file_size == 0:
-        print(f"⚠️  El archivo de cookies está vacío: {cookies_file}")
-        return False
-    
-    print(f"   ✓ Tamaño del archivo: {file_size} bytes")
-    
-    # Probar acceso a YouTube con las cookies
+
+    if browser_cfg:
+        label = f"navegador {browser_cfg[0]}" + (f" (perfil: {browser_cfg[1]})" if len(browser_cfg) > 1 else '')
+        print(f"📋 Cookies configuradas: {label}")
+    else:
+        print(f"📋 Archivo de cookies encontrado: {cookies_file}")
+        cookie_path = Path(cookies_file)
+        if not cookie_path.exists():
+            print(f"❌ El archivo de cookies no existe: {cookies_file}")
+            return False
+        file_size = cookie_path.stat().st_size
+        if file_size == 0:
+            print(f"⚠️  El archivo de cookies está vacío: {cookies_file}")
+            return False
+        print(f"   ✓ Tamaño del archivo: {file_size} bytes")
+
+    # Probar acceso a YouTube con las cookies configuradas
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'extract_flat': True,
-        'cookiefile': cookies_file,
     }
+    apply_cookies_to_opts(ydl_opts)
     
     print("\n🔍 Probando acceso a YouTube...")
     
@@ -2047,22 +2156,20 @@ def test_cookies() -> bool:
 def get_user_playlists() -> list:
     """
     Obtiene todas las playlists del usuario autenticado.
-    
+
     Returns:
         Lista de diccionarios con información de cada playlist.
     """
-    cookies_file = get_cookies_file()
-    
-    if not cookies_file:
-        print("⚠️  No se encontró archivo de cookies.")
+    if not has_cookies_configured():
+        print("⚠️  No se encontró configuración de cookies (navegador ni archivo).")
         return []
-    
+
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'extract_flat': True,
-        'cookiefile': cookies_file,
     }
+    apply_cookies_to_opts(ydl_opts)
     
     # Intentar obtener el canal del usuario desde las cookies
     # Primero intentamos obtener el canal desde la página de inicio
@@ -2101,21 +2208,19 @@ def get_user_playlists() -> list:
 def find_liked_playlist_url() -> Optional[str]:
     """
     Busca la URL de la playlist de "me gusta" del usuario.
-    
+
     Returns:
         URL de la playlist de "me gusta" o None si no se encuentra.
     """
-    cookies_file = get_cookies_file()
-    
-    if not cookies_file:
+    if not has_cookies_configured():
         return None
-    
+
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'extract_flat': True,
-        'cookiefile': cookies_file,
     }
+    apply_cookies_to_opts(ydl_opts)
     
     # URLs comunes para la lista de "me gusta"
     # La lista de "me gusta" puede tener diferentes IDs dependiendo del usuario
@@ -2151,24 +2256,28 @@ def list_user_playlists():
     """
     Lista todas las playlists del usuario y muestra información útil.
     """
+    browser_cfg = get_cookies_browser()
     cookies_file = get_cookies_file()
-    
-    if not cookies_file:
-        print("❌ No se encontró archivo de cookies.")
-        print("   Para acceder a tus playlists, necesitas exportar tus cookies de YouTube.")
-        print("   Puedes usar una extensión del navegador como 'Get cookies.txt LOCALLY'")
-        print("   y guardar el archivo como 'youtube_cookies.txt' en tu directorio home o actual.")
+
+    if not browser_cfg and not cookies_file:
+        print("❌ No se encontró configuración de cookies.")
+        print("   Para acceder a tus playlists, configura un navegador (YOUTUBE_COOKIES_BROWSER)")
+        print("   o exporta tus cookies de YouTube a un archivo (YOUTUBE_COOKIES_FILE).")
         return
-    
-    print(f"📋 Usando cookies desde: {cookies_file}")
+
+    if browser_cfg:
+        label = f"navegador {browser_cfg[0]}" + (f" (perfil: {browser_cfg[1]})" if len(browser_cfg) > 1 else '')
+        print(f"📋 Usando cookies del {label}")
+    else:
+        print(f"📋 Usando cookies desde: {cookies_file}")
     print("🔍 Buscando playlists...\n")
-    
+
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'extract_flat': True,
-        'cookiefile': cookies_file,
     }
+    apply_cookies_to_opts(ydl_opts)
     
     playlists_found = []
     
@@ -2267,17 +2376,15 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
         limit: Número máximo de videos a obtener
         start_index: Índice inicial (1-based) para obtener videos desde una posición específica
     """
-    cookies_file = get_cookies_file()
-    
-    if not cookies_file:
-        print("⚠️  No se encontró archivo de cookies.")
+    if not has_cookies_configured():
+        print("⚠️  No se encontró configuración de cookies (navegador ni archivo).")
         return []
-    
+
     # Calcular el rango de elementos a obtener
     # start_index es 1-based, así que si queremos 10 canciones desde el índice 1, obtenemos 1-10
     end_index = start_index + limit - 1
     playlist_items = f"{start_index}-{end_index}" if limit > 0 else None
-    
+
     # Usar extract_flat para obtener solo información básica sin problemas de formato
     # y ignoreerrors para continuar aunque algunos videos fallen
     ydl_opts = {
@@ -2285,10 +2392,10 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
         'no_warnings': True,
         'extract_flat': 'in_playlist',
         'playlistend': end_index,  # Limitar hasta el final del rango
-        'cookiefile': cookies_file,
         'ignoreerrors': True,  # Continuar aunque algunos videos fallen
     }
-    
+    apply_cookies_to_opts(ydl_opts)
+
     # Agregar playlist_items si se especificó un límite
     if playlist_items:
         ydl_opts['playlist_items'] = playlist_items
@@ -2341,9 +2448,9 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
                     'quiet': True,
                     'no_warnings': True,
                     'playlistend': end_index,
-                    'cookiefile': cookies_file,
                     'ignoreerrors': True,  # Continuar aunque algunos videos fallen
                 }
+                apply_cookies_to_opts(ydl_opts_full)
                 if playlist_items:
                     ydl_opts_full['playlist_items'] = playlist_items
                 try:
@@ -2419,25 +2526,28 @@ def get_liked_videos(limit: int = 10) -> list:
     Nota: Requiere cookies de sesión de YouTube. El usuario debe exportar sus cookies
     desde el navegador y guardarlas en un archivo (formato Netscape).
     """
+    browser_cfg = get_cookies_browser()
     cookies_file = get_cookies_file()
-    
-    if not cookies_file:
-        print("⚠️  Advertencia: No se encontró archivo de cookies.")
-        print("   Para acceder a tu lista de 'me gusta', necesitas exportar tus cookies de YouTube.")
-        print("   Puedes usar una extensión del navegador como 'Get cookies.txt LOCALLY'")
-        print("   y guardar el archivo como 'youtube_cookies.txt' en tu directorio home o actual.")
-        print("   O establecer la variable de entorno YOUTUBE_COOKIES_FILE con la ruta al archivo.")
+
+    if not browser_cfg and not cookies_file:
+        print("⚠️  Advertencia: No se encontró configuración de cookies.")
+        print("   Para acceder a tu lista de 'me gusta', configura un navegador (YOUTUBE_COOKIES_BROWSER=chrome)")
+        print("   o exporta tus cookies de YouTube a un archivo (YOUTUBE_COOKIES_FILE).")
         return []
-    
-    print(f"📋 Usando cookies desde: {cookies_file}")
-    
+
+    if browser_cfg:
+        label = f"navegador {browser_cfg[0]}" + (f" (perfil: {browser_cfg[1]})" if len(browser_cfg) > 1 else '')
+        print(f"📋 Usando cookies del {label}")
+    else:
+        print(f"📋 Usando cookies desde: {cookies_file}")
+
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'extract_flat': 'in_playlist',
         'playlistend': limit,
-        'cookiefile': cookies_file,
     }
+    apply_cookies_to_opts(ydl_opts)
     
     # Primero intentar encontrar la URL correcta de la playlist de "me gusta"
     liked_url = find_liked_playlist_url()

@@ -155,21 +155,222 @@
             cursor: not-allowed;
         }
         
+        /* Los antiguos contenedores .log-container in-line se ocultan:
+           ahora todos los logs se vuelcan en el panel flotante de la derecha. */
         .log-container {
+            display: none !important;
+        }
+
+        /* ============================================================
+           PANEL FLOTANTE DE LOGS (derecha)
+           ============================================================ */
+        #floating-log-panel {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 460px;
+            max-width: calc(100vw - 40px);
+            height: calc(100vh - 120px);
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 10px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+            z-index: 1500;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: width 0.25s ease, height 0.25s ease,
+                        top 0.25s ease, right 0.25s ease,
+                        transform 0.25s ease, opacity 0.2s ease;
+        }
+        #floating-log-panel.hidden {
+            transform: translateX(calc(100% + 30px));
+            opacity: 0;
+            pointer-events: none;
+        }
+        #floating-log-panel.minimized {
+            height: 44px;
+        }
+        #floating-log-panel.minimized .floating-log-body,
+        #floating-log-panel.minimized .floating-log-tabs {
+            display: none;
+        }
+        #floating-log-panel.maximized {
+            top: 20px;
+            right: 20px;
+            width: calc(100vw - 40px);
+            height: calc(100vh - 40px);
+        }
+
+        .floating-log-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: linear-gradient(135deg, #2c2c3e 0%, #1f1f2e 100%);
+            color: #f0f0f0;
+            cursor: move;
+            -webkit-user-select: none;
+            user-select: none;
+            border-bottom: 1px solid #333;
+        }
+        .floating-log-header .floating-log-title {
+            flex: 1;
+            font-weight: bold;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .floating-log-header .floating-log-title .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #28a745;
+            box-shadow: 0 0 6px #28a745;
+        }
+        .floating-log-btn {
+            background: transparent;
+            border: none;
+            color: #ccc;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background 0.2s, color 0.2s;
+        }
+        .floating-log-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .floating-log-tabs {
+            display: flex;
+            gap: 4px;
+            padding: 6px 8px;
+            background: #232333;
+            border-bottom: 1px solid #2a2a3a;
+            overflow-x: auto;
+            flex-shrink: 0;
+        }
+        .floating-log-tab {
+            background: #2c2c3e;
+            color: #aaa;
+            border: 1px solid transparent;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+        .floating-log-tab:hover {
+            color: #fff;
+            background: #3a3a4e;
+        }
+        .floating-log-tab.active {
+            background: #667eea;
+            color: #fff;
+            border-color: #5568d3;
+        }
+        .floating-log-tab .tab-badge {
+            display: inline-block;
+            min-width: 16px;
+            padding: 0 5px;
+            margin-left: 4px;
+            background: #dc3545;
+            color: #fff;
+            border-radius: 8px;
+            font-size: 10px;
+            line-height: 14px;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .floating-log-body {
+            flex: 1;
+            min-height: 0;
             background: #000;
             color: #0f0;
-            padding: 15px;
-            border-radius: 5px;
             font-family: 'Courier New', monospace;
             font-size: 12px;
             white-space: pre-wrap;
-            max-height: 400px;
             overflow-y: auto;
-            margin-top: 20px;
+            padding: 10px 12px;
+        }
+        .floating-log-body .log-section {
             display: none;
         }
-        
-        /* Pestaña Base de datos: tabla con scroll y consola siempre visible abajo */
+        .floating-log-body .log-section.active {
+            display: block;
+        }
+        .floating-log-body:empty::before,
+        .floating-log-body .log-section.active:empty::before {
+            content: "— Sin actividad todavía —";
+            color: #555;
+            font-style: italic;
+        }
+
+        /* Botón flotante para reabrir el panel cuando está oculto */
+        #floating-log-toggle {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            font-size: 22px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+            z-index: 1499;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        #floating-log-toggle:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+        }
+        #floating-log-toggle.visible {
+            display: flex;
+        }
+        #floating-log-toggle .toggle-badge {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 5px;
+            background: #dc3545;
+            color: #fff;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: bold;
+            line-height: 20px;
+            text-align: center;
+            display: none;
+        }
+        #floating-log-toggle .toggle-badge.visible {
+            display: block;
+        }
+
+        /* En pantallas pequeñas, el panel ocupa más espacio */
+        @media (max-width: 900px) {
+            #floating-log-panel {
+                width: calc(100vw - 24px);
+                right: 12px;
+                top: 12px;
+                height: 60vh;
+            }
+        }
+
+        /* Pestaña Base de datos: tabla con scroll, ya no necesita reservar
+           espacio para una consola fija (la consola es el panel flotante) */
         #database.tab-content.database-tab {
             display: none;
             flex-direction: column;
@@ -185,13 +386,6 @@
             min-height: 0;
             overflow-y: auto;
             margin-bottom: 10px;
-        }
-        #database .log-container.database-log-always-visible {
-            display: block !important;
-            flex-shrink: 0;
-            height: 200px;
-            max-height: 200px;
-            margin-top: 0;
         }
         
         .song-item {
@@ -705,15 +899,481 @@
             color: #666;
             font-weight: bold;
         }
+
+        /* Buscador de YouTube (pestaña Descargar) */
+        .yt-search-wrapper {
+            position: relative;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .yt-search-wrapper input {
+            width: 100%;
+            min-width: 0 !important;
+            flex: none !important;
+        }
+
+        .yt-search-spinner {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e9ecef;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: yt-spin 0.8s linear infinite;
+            display: none;
+            pointer-events: none;
+        }
+
+        .yt-search-spinner.active {
+            display: block;
+        }
+
+        @keyframes yt-spin {
+            to { transform: translateY(-50%) rotate(360deg); }
+        }
+
+        .yt-search-results {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            max-height: 420px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+        }
+
+        .yt-search-results.visible {
+            display: block;
+        }
+
+        .yt-search-item {
+            display: flex;
+            gap: 12px;
+            padding: 10px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background 0.15s;
+            align-items: center;
+        }
+
+        .yt-search-item:last-child {
+            border-bottom: none;
+        }
+
+        .yt-search-item:hover,
+        .yt-search-item.highlighted {
+            background: #f5f7ff;
+        }
+
+        .yt-search-item-thumb {
+            position: relative;
+            width: 120px;
+            height: 68px;
+            flex-shrink: 0;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #000;
+        }
+
+        .yt-search-item-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .yt-search-item-duration {
+            position: absolute;
+            right: 4px;
+            bottom: 4px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            font-size: 11px;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        .yt-search-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .yt-search-item-title {
+            font-weight: bold;
+            color: #333;
+            font-size: 14px;
+            line-height: 1.3;
+            margin-bottom: 4px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .yt-search-item-meta {
+            font-size: 12px;
+            color: #666;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .yt-search-item-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .yt-search-item-actions .btn {
+            padding: 5px 10px;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .yt-search-empty,
+        .yt-search-error {
+            padding: 14px 12px;
+            text-align: center;
+            color: #888;
+            font-size: 13px;
+        }
+
+        .yt-search-error {
+            color: #c82333;
+        }
+
+        /* ============================================================
+           MODO RADIO (reproductor flotante - izquierda)
+           ============================================================ */
+        #radio-player {
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            width: 360px;
+            max-width: calc(100vw - 48px);
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+            color: #f0f0f0;
+            z-index: 1500;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: transform 0.25s ease, opacity 0.2s ease, height 0.25s ease;
+        }
+        #radio-player.hidden {
+            transform: translateX(calc(-100% - 30px));
+            opacity: 0;
+            pointer-events: none;
+        }
+        #radio-player.minimized .radio-body {
+            display: none;
+        }
+        .radio-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: linear-gradient(135deg, #2c2c3e 0%, #1f1f2e 100%);
+            border-bottom: 1px solid #333;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .radio-header .radio-title {
+            flex: 1;
+            font-weight: bold;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .radio-header .radio-title .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #888;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        #radio-player.is-playing .radio-header .radio-title .dot {
+            background: #28a745;
+            box-shadow: 0 0 6px #28a745;
+            animation: radio-pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes radio-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.45; }
+        }
+        .radio-btn {
+            background: transparent;
+            border: none;
+            color: #ccc;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background 0.2s, color 0.2s;
+        }
+        .radio-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+        .radio-body {
+            padding: 14px 14px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .radio-info {
+            min-height: 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .radio-info .radio-track-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .radio-info .radio-track-artist {
+            font-size: 12px;
+            color: #aaa;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .radio-info .radio-track-meta {
+            font-size: 11px;
+            color: #666;
+            margin-top: 2px;
+        }
+        .radio-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .radio-controls .radio-ctrl {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: #2c2c3e;
+            border: 1px solid #3a3a4e;
+            color: #f0f0f0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .radio-controls .radio-ctrl:hover:not(:disabled) {
+            background: #3a3a4e;
+        }
+        .radio-controls .radio-ctrl:active:not(:disabled) {
+            transform: scale(0.95);
+        }
+        .radio-controls .radio-ctrl:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .radio-controls .radio-ctrl.radio-ctrl-play {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #5568d3;
+            font-size: 18px;
+        }
+        .radio-controls .radio-ctrl.radio-ctrl-play:hover:not(:disabled) {
+            background: linear-gradient(135deg, #7187f0 0%, #855ab2 100%);
+        }
+        .radio-audio-row {
+            width: 100%;
+        }
+        .radio-audio-row audio {
+            width: 100%;
+            height: 32px;
+        }
+        .radio-status {
+            font-size: 11px;
+            color: #888;
+            text-align: center;
+            min-height: 14px;
+        }
+        .radio-status.error {
+            color: #ff6b6b;
+        }
+
+        /* Botón flotante para abrir el reproductor cuando está oculto */
+        #radio-toggle {
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            font-size: 24px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+            z-index: 1499;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        #radio-toggle:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+        }
+        #radio-toggle.visible {
+            display: flex;
+        }
+        #radio-toggle.is-playing::after {
+            content: '';
+            position: absolute;
+            top: -2px;
+            right: -2px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #28a745;
+            box-shadow: 0 0 8px #28a745;
+            animation: radio-pulse 1.6s ease-in-out infinite;
+        }
+
+        @media (max-width: 900px) {
+            #radio-player {
+                width: calc(100vw - 24px);
+                left: 12px;
+                bottom: 12px;
+            }
+            #radio-toggle {
+                left: 12px;
+                bottom: 12px;
+            }
+        }
     </style>
 </head>
 <body>
+    <!-- Panel flotante de logs (derecha) -->
+    <div id="floating-log-panel" aria-label="Consola de actividad">
+        <div class="floating-log-header" id="floating-log-header">
+            <div class="floating-log-title">
+                <span class="dot"></span>
+                <span>📜 Consola</span>
+            </div>
+            <button type="button" class="floating-log-btn" id="btn-log-clear" title="Limpiar pestaña actual">🧹</button>
+            <button type="button" class="floating-log-btn" id="btn-log-minimize" title="Minimizar / restaurar">_</button>
+            <button type="button" class="floating-log-btn" id="btn-log-maximize" title="Maximizar / restaurar">⛶</button>
+            <button type="button" class="floating-log-btn" id="btn-log-close" title="Ocultar panel">✕</button>
+        </div>
+        <div class="floating-log-tabs" id="floating-log-tabs">
+            <button type="button" class="floating-log-tab active" data-log-tab="download">📥 Descargar</button>
+            <button type="button" class="floating-log-tab" data-log-tab="database">💾 BD</button>
+            <button type="button" class="floating-log-tab" data-log-tab="playlist">🎵 Playlist</button>
+            <button type="button" class="floating-log-tab" data-log-tab="import">📁 Importar</button>
+            <button type="button" class="floating-log-tab" data-log-tab="testing">🧪 Testing</button>
+            <button type="button" class="floating-log-tab" data-log-tab="config">⚙️ Config</button>
+        </div>
+        <div class="floating-log-body" id="floating-log-body">
+            <div class="log-section active" data-log-section="download"></div>
+            <div class="log-section" data-log-section="database"></div>
+            <div class="log-section" data-log-section="playlist"></div>
+            <div class="log-section" data-log-section="import"></div>
+            <div class="log-section" data-log-section="testing"></div>
+            <div class="log-section" data-log-section="config"></div>
+        </div>
+    </div>
+
+    <!-- Botón flotante para reabrir el panel cuando está oculto -->
+    <button type="button" id="floating-log-toggle" title="Mostrar consola">
+        📜
+        <span class="toggle-badge" id="floating-log-toggle-badge">0</span>
+    </button>
+
+    <!-- Modo Radio: reproductor flotante (izquierda) -->
+    <div id="radio-player" class="hidden" aria-label="Modo Radio">
+        <div class="radio-header">
+            <div class="radio-title">
+                <span class="dot"></span>
+                <span>📻 Radio</span>
+            </div>
+            <button type="button" class="radio-btn" id="btn-radio-minimize" title="Minimizar / restaurar">_</button>
+            <button type="button" class="radio-btn" id="btn-radio-close" title="Ocultar reproductor">✕</button>
+        </div>
+        <div class="radio-body">
+            <div class="radio-info">
+                <div class="radio-track-title" id="radio-track-title">— Sin canción cargada —</div>
+                <div class="radio-track-artist" id="radio-track-artist">Pulsa ▶ para empezar</div>
+                <div class="radio-track-meta" id="radio-track-meta"></div>
+            </div>
+            <div class="radio-controls">
+                <button type="button" class="radio-ctrl radio-ctrl-play" id="btn-radio-play" title="Play / Pause">▶</button>
+                <button type="button" class="radio-ctrl" id="btn-radio-next" title="Siguiente canción">⏭</button>
+            </div>
+            <div class="radio-audio-row">
+                <audio id="radio-audio" preload="none"></audio>
+            </div>
+            <div class="radio-status" id="radio-status"></div>
+        </div>
+    </div>
+
+    <!-- Botón flotante para abrir el reproductor de radio -->
+    <button type="button" id="radio-toggle" title="Abrir modo Radio">📻</button>
+
     <div class="container">
         <div class="header">
             <h1>🎵 Gestor de Música para DJ</h1>
             <p>Gestiona y descarga tu música de YouTube</p>
         </div>
-        
+
+        <!-- Banner de alerta ffmpeg (oculto por defecto, se muestra si ffmpeg no está disponible) -->
+        <div id="ffmpeg-alert-banner" style="display:none; background:#fff3cd; border-bottom:3px solid #ffc107; padding:16px 24px;">
+            <div style="display:flex; align-items:flex-start; gap:14px; flex-wrap:wrap;">
+                <span style="font-size:2em; line-height:1;">⚠️</span>
+                <div style="flex:1; min-width:220px;">
+                    <strong style="font-size:1.1em; color:#856404;">ffmpeg no está instalado</strong>
+                    <p style="margin:6px 0 0; color:#533f03;">
+                        ffmpeg es <strong>necesario</strong> para convertir el audio descargado a MP3.
+                        Sin él, <strong>todas las descargas fallarán</strong>.
+                    </p>
+                    <div id="ffmpeg-install-block" style="margin-top:10px;"></div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px; min-width:200px;">
+                    <button id="ffmpeg-install-btn" class="btn btn-warning" onclick="installFfmpegWinget()" style="display:none;">
+                        ⚡ Instalar automáticamente (winget)
+                    </button>
+                    <a id="ffmpeg-download-link" href="https://www.gyan.dev/ffmpeg/builds/" target="_blank"
+                       class="btn btn-primary" style="text-align:center; text-decoration:none;">
+                        📥 Descargar ffmpeg manualmente
+                    </a>
+                    <button class="btn" onclick="document.getElementById('ffmpeg-alert-banner').style.display='none'"
+                            style="background:#6c757d; color:white;">
+                        Ocultar aviso
+                    </button>
+                </div>
+            </div>
+            <div id="ffmpeg-install-status" style="margin-top:10px; font-weight:bold;"></div>
+        </div>
+
         <div class="tabs">
             <button class="tab active" onclick="showTab('download')">📥 Descargar</button>
             <button class="tab" onclick="showTab('database')">💾 Base de Datos</button>
@@ -727,6 +1387,14 @@
         <!-- Pestaña: Descargar -->
         <div id="download" class="tab-content active">
             <h2>📥 Descarga Directa</h2>
+            <div class="control-group">
+                <label>🔍 Buscar en YouTube:</label>
+                <div class="yt-search-wrapper">
+                    <input type="text" id="yt-search-input" placeholder="Escribe el nombre de una canción, artista..." autocomplete="off">
+                    <div class="yt-search-spinner" id="yt-search-spinner"></div>
+                    <div class="yt-search-results" id="yt-search-results"></div>
+                </div>
+            </div>
             <div class="control-group">
                 <label>URL de YouTube:</label>
                 <input type="text" id="direct-url" placeholder="Pega aquí la URL de YouTube">
@@ -865,11 +1533,86 @@
                 <button class="btn btn-success" onclick="saveConfig()">💾 Guardar Configuración</button>
                 <button class="btn btn-primary" onclick="saveAndReloadConfig()" style="margin-left: 10px;">🔄 Guardar y Aplicar</button>
             </div>
+            <div id="config-ffmpeg-section" style="margin-top: 20px; padding: 15px; border-radius: 10px; background: #e8f4fd;">
+                <h3>🎬 ffmpeg</h3>
+                <p style="margin: 8px 0;">Estado: <strong id="config-ffmpeg-status-text">Comprobando...</strong></p>
+                <p id="config-ffmpeg-path" style="margin: 4px 0; font-size:0.85em; color:#555; display:none;"></p>
+                <div id="config-ffmpeg-install-area" style="display:none; margin-top:12px; padding:12px; background:#fff3cd; border-radius:8px; border:1px solid #ffc107;">
+                    <p style="margin:0 0 8px; color:#856404;"><strong>ffmpeg no encontrado.</strong> Es necesario para convertir audio a MP3.</p>
+                    <p id="config-ffmpeg-cmd" style="font-family:monospace; background:#f8f9fa; padding:8px; border-radius:4px; margin:8px 0; word-break:break-all;"></p>
+                    <p id="config-ffmpeg-note" style="font-size:0.9em; color:#555; margin:4px 0;"></p>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                        <button id="config-ffmpeg-install-btn" class="btn btn-warning" onclick="installFfmpegWinget()" style="display:none;">
+                            ⚡ Instalar con winget
+                        </button>
+                        <a id="config-ffmpeg-dl-link" href="https://www.gyan.dev/ffmpeg/builds/" target="_blank"
+                           class="btn btn-primary" style="text-decoration:none; text-align:center;">
+                            📥 Descargar manualmente
+                        </a>
+                    </div>
+                    <div id="config-ffmpeg-install-status" style="margin-top:8px; font-weight:bold;"></div>
+                </div>
+            </div>
+
             <div style="margin-top: 20px; padding: 15px; background: #e8f4fd; border-radius: 10px;">
                 <h3>📦 yt-dlp</h3>
                 <p style="margin: 10px 0;">Versión instalada: <strong id="config-ytdlp-version">—</strong></p>
                 <button class="btn btn-primary" onclick="updateYtDlp()" id="config-ytdlp-update-btn">🔄 Forzar actualización</button>
                 <span id="config-ytdlp-status" style="margin-left: 10px;"></span>
+            </div>
+
+            <div style="margin-top: 20px; padding: 15px; background: #e8f4fd; border-radius: 10px;">
+                <h3>🔐 Cookies de YouTube</h3>
+                <p style="margin: 8px 0; font-size: 0.9em; color: #555;">
+                    Necesarias para acceder a tu playlist <strong>"Me gusta"</strong>
+                    (<code>music.youtube.com/playlist?list=LM</code>) y a videos privados o con restricción de edad.
+                </p>
+                <p style="margin: 8px 0; font-size: 0.9em; color: #555;">
+                    Recomendado: leer cookies directamente del navegador. Si fallara, usa un archivo
+                    de cookies en formato Netscape exportado con una extensión.
+                </p>
+
+                <div class="control-group">
+                    <label>Leer cookies del navegador:</label>
+                    <select id="config-cookies-browser" style="min-width: 200px;">
+                        <option value="">— Ninguno (usar archivo) —</option>
+                        <option value="chrome">Google Chrome</option>
+                        <option value="edge">Microsoft Edge</option>
+                        <option value="firefox">Mozilla Firefox</option>
+                        <option value="brave">Brave</option>
+                        <option value="opera">Opera</option>
+                        <option value="vivaldi">Vivaldi</option>
+                        <option value="chromium">Chromium</option>
+                        <option value="safari">Safari (solo macOS)</option>
+                        <option value="whale">Whale</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label title="Opcional: nombre del perfil del navegador (ej: Default, Profile 1)">Perfil del navegador (opcional):</label>
+                    <input type="text" id="config-cookies-browser-profile" placeholder="Ej: Default, Profile 1, work">
+                </div>
+                <p style="margin: 8px 0; font-size: 0.85em; color: #856404; background: #fff3cd; padding: 8px; border-radius: 6px;">
+                    ⚠️ <strong>Cierra TODAS las ventanas del navegador</strong> antes de probar.
+                    Algunos navegadores (Chrome/Edge) bloquean el acceso a las cookies cuando están abiertos.
+                </p>
+
+                <div class="control-group" style="margin-top: 15px;">
+                    <label>Archivo de cookies (alternativa o fallback):</label>
+                    <input type="text" id="config-cookies-file" placeholder="Ruta a youtube_cookies.txt (formato Netscape)">
+                    <button class="btn btn-primary" onclick="browseCookiesFile()">📂 Seleccionar</button>
+                </div>
+                <p style="margin: 8px 0; font-size: 0.85em; color: #555;">
+                    Si lo dejas vacío, se busca <code>youtube_cookies.txt</code> en tu carpeta de usuario o junto a la app.
+                    Para exportarlo: usa la extensión "Get cookies.txt LOCALLY" en una sesión donde estés logueado en YouTube Music,
+                    y <strong>no vuelvas a usar ese perfil</strong> después (YouTube rota las cookies si lo detecta).
+                </p>
+
+                <div class="control-group" style="margin-top: 10px;">
+                    <button class="btn btn-warning" onclick="testCookies()" id="config-cookies-test-btn">
+                        🧪 Probar cookies con la playlist "LM"
+                    </button>
+                </div>
+                <div id="config-cookies-test-result" style="margin-top: 10px;"></div>
             </div>
             <div style="margin-top: 20px; padding: 15px; background: #d4edda; border-radius: 10px;">
                 <h3>🔄 Reinicio de la Aplicación</h3>
@@ -942,6 +1685,14 @@
             
             // Activar el tab seleccionado
             event.target.classList.add('active');
+
+            // Sincronizar la pestaña visible del panel flotante de logs
+            if (window.FloatingLog && typeof FloatingLog.setActiveTab === 'function') {
+                const validLogTabs = ['download', 'database', 'playlist', 'import', 'testing', 'config'];
+                if (validLogTabs.includes(tabName)) {
+                    FloatingLog.setActiveTab(tabName);
+                }
+            }
             
             // Cargar datos si es necesario
             if (tabName === 'database') {
@@ -953,30 +1704,427 @@
             }
         }
         
-        // Funciones de log
-        function log(tabId, message) {
-            const logEl = document.getElementById(tabId + '-log');
-            if (logEl) {
-                const timestamp = new Date().toLocaleTimeString();
-                logEl.textContent += `[${timestamp}] ${message}\n`;
-                logEl.scrollTop = logEl.scrollHeight;
-                // Mostrar el contenedor cuando tiene contenido
-                if (logEl.textContent.trim()) {
-                    logEl.style.display = 'block';
+        // ============================================================
+        // PANEL FLOTANTE DE LOGS
+        // ============================================================
+        const FloatingLog = (() => {
+            const STORAGE_KEY = 'floatingLogPanelState_v1';
+            const VALID_TABS = ['download', 'database', 'playlist', 'import', 'testing', 'config'];
+            const TAB_LABELS = {
+                download: '📥 Descargar',
+                database: '💾 Base de datos',
+                playlist: '🎵 Playlist',
+                import: '📁 Importar',
+                testing: '🧪 Testing',
+                config: '⚙️ Config'
+            };
+
+            let panelEl, headerEl, bodyEl, tabsEl, toggleEl, toggleBadgeEl;
+            let activeTab = 'download';
+            const unreadCount = { download: 0, database: 0, playlist: 0, import: 0, testing: 0, config: 0 };
+            let savedState = { visible: true, minimized: false, maximized: false, activeTab: 'download' };
+
+            function loadState() {
+                try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (raw) Object.assign(savedState, JSON.parse(raw));
+                } catch (_) { /* ignorar */ }
+            }
+            function persistState() {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(savedState));
+                } catch (_) { /* ignorar */ }
+            }
+
+            function setVisible(visible) {
+                savedState.visible = visible;
+                panelEl.classList.toggle('hidden', !visible);
+                toggleEl.classList.toggle('visible', !visible);
+                if (visible) {
+                    // Si lo abrimos por una acción, salimos de minimizado para que se vea
+                    if (savedState.minimized) {
+                        savedState.minimized = false;
+                        panelEl.classList.remove('minimized');
+                    }
+                    unreadCount[activeTab] = 0;
+                    refreshBadges();
+                }
+                persistState();
+            }
+            function toggleVisible() { setVisible(!savedState.visible); }
+
+            function setMinimized(min) {
+                savedState.minimized = min;
+                if (min) savedState.maximized = false;
+                panelEl.classList.toggle('minimized', min);
+                panelEl.classList.toggle('maximized', savedState.maximized);
+                persistState();
+            }
+            function toggleMinimized() { setMinimized(!savedState.minimized); }
+
+            function setMaximized(max) {
+                savedState.maximized = max;
+                if (max) savedState.minimized = false;
+                panelEl.classList.toggle('maximized', max);
+                panelEl.classList.toggle('minimized', savedState.minimized);
+                persistState();
+            }
+            function toggleMaximized() { setMaximized(!savedState.maximized); }
+
+            function setActiveTab(tabId) {
+                if (!VALID_TABS.includes(tabId)) return;
+                activeTab = tabId;
+                savedState.activeTab = tabId;
+                tabsEl.querySelectorAll('.floating-log-tab').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.logTab === tabId);
+                });
+                bodyEl.querySelectorAll('.log-section').forEach(sec => {
+                    sec.classList.toggle('active', sec.dataset.logSection === tabId);
+                });
+                unreadCount[tabId] = 0;
+                refreshBadges();
+                const sec = bodyEl.querySelector(`.log-section[data-log-section="${tabId}"]`);
+                if (sec) bodyEl.scrollTop = bodyEl.scrollHeight;
+                persistState();
+            }
+
+            function refreshBadges() {
+                let total = 0;
+                tabsEl.querySelectorAll('.floating-log-tab').forEach(btn => {
+                    const tab = btn.dataset.logTab;
+                    const n = unreadCount[tab] || 0;
+                    let badge = btn.querySelector('.tab-badge');
+                    if (n > 0 && tab !== activeTab) {
+                        if (!badge) {
+                            badge = document.createElement('span');
+                            badge.className = 'tab-badge';
+                            btn.appendChild(badge);
+                        }
+                        badge.textContent = n > 99 ? '99+' : String(n);
+                        total += n;
+                    } else if (badge) {
+                        badge.remove();
+                    }
+                });
+                if (toggleBadgeEl) {
+                    if (!savedState.visible && total > 0) {
+                        toggleBadgeEl.textContent = total > 99 ? '99+' : String(total);
+                        toggleBadgeEl.classList.add('visible');
+                    } else {
+                        toggleBadgeEl.classList.remove('visible');
+                    }
                 }
             }
-        }
-        
-        function clearLog(tabId) {
-            const logEl = document.getElementById(tabId + '-log');
-            if (logEl) {
-                logEl.textContent = '';
-                // Ocultar el contenedor cuando está vacío
-                logEl.style.display = 'none';
+
+            function getSection(tabId) {
+                if (!VALID_TABS.includes(tabId)) tabId = 'download';
+                return bodyEl.querySelector(`.log-section[data-log-section="${tabId}"]`);
             }
+
+            function append(tabId, message) {
+                const section = getSection(tabId);
+                if (!section) return;
+                const ts = new Date().toLocaleTimeString();
+                const wasAtBottom = (bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight) < 30;
+                section.textContent += `[${ts}] ${message}\n`;
+                if (tabId === activeTab && wasAtBottom) {
+                    bodyEl.scrollTop = bodyEl.scrollHeight;
+                }
+                if (tabId !== activeTab || !savedState.visible || savedState.minimized) {
+                    unreadCount[tabId] = (unreadCount[tabId] || 0) + 1;
+                    refreshBadges();
+                }
+            }
+
+            function clear(tabId) {
+                const section = getSection(tabId);
+                if (section) section.textContent = '';
+                unreadCount[tabId] = 0;
+                refreshBadges();
+            }
+
+            function clearActive() { clear(activeTab); }
+
+            // Drag & drop sencillo del panel
+            function enableDrag() {
+                let dragging = false;
+                let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+                headerEl.addEventListener('mousedown', (e) => {
+                    if (e.target.closest('.floating-log-btn')) return;
+                    if (savedState.maximized) return;
+                    dragging = true;
+                    const rect = panelEl.getBoundingClientRect();
+                    startX = e.clientX; startY = e.clientY;
+                    startLeft = rect.left; startTop = rect.top;
+                    panelEl.style.right = 'auto';
+                    panelEl.style.left = startLeft + 'px';
+                    panelEl.style.top = startTop + 'px';
+                    document.body.style.userSelect = 'none';
+                });
+                window.addEventListener('mousemove', (e) => {
+                    if (!dragging) return;
+                    const dx = e.clientX - startX;
+                    const dy = e.clientY - startY;
+                    let newLeft = startLeft + dx;
+                    let newTop = startTop + dy;
+                    const maxLeft = window.innerWidth - panelEl.offsetWidth - 4;
+                    const maxTop = window.innerHeight - 44;
+                    newLeft = Math.max(4, Math.min(maxLeft, newLeft));
+                    newTop = Math.max(4, Math.min(maxTop, newTop));
+                    panelEl.style.left = newLeft + 'px';
+                    panelEl.style.top = newTop + 'px';
+                });
+                window.addEventListener('mouseup', () => {
+                    if (dragging) {
+                        dragging = false;
+                        document.body.style.userSelect = '';
+                    }
+                });
+            }
+
+            function init() {
+                panelEl = document.getElementById('floating-log-panel');
+                headerEl = document.getElementById('floating-log-header');
+                bodyEl = document.getElementById('floating-log-body');
+                tabsEl = document.getElementById('floating-log-tabs');
+                toggleEl = document.getElementById('floating-log-toggle');
+                toggleBadgeEl = document.getElementById('floating-log-toggle-badge');
+                if (!panelEl) return;
+
+                loadState();
+
+                document.getElementById('btn-log-clear').addEventListener('click', clearActive);
+                document.getElementById('btn-log-minimize').addEventListener('click', toggleMinimized);
+                document.getElementById('btn-log-maximize').addEventListener('click', toggleMaximized);
+                document.getElementById('btn-log-close').addEventListener('click', () => setVisible(false));
+                toggleEl.addEventListener('click', () => setVisible(true));
+
+                tabsEl.querySelectorAll('.floating-log-tab').forEach(btn => {
+                    btn.addEventListener('click', () => setActiveTab(btn.dataset.logTab));
+                });
+
+                // Doble clic en la cabecera = maximizar/restaurar
+                headerEl.addEventListener('dblclick', (e) => {
+                    if (e.target.closest('.floating-log-btn')) return;
+                    toggleMaximized();
+                });
+
+                enableDrag();
+
+                // Aplicar estado guardado
+                setActiveTab(VALID_TABS.includes(savedState.activeTab) ? savedState.activeTab : 'download');
+                panelEl.classList.toggle('minimized', !!savedState.minimized);
+                panelEl.classList.toggle('maximized', !!savedState.maximized);
+                panelEl.classList.toggle('hidden', savedState.visible === false);
+                toggleEl.classList.toggle('visible', savedState.visible === false);
+            }
+
+            return { init, append, clear, setActiveTab, setVisible, toggleVisible };
+        })();
+
+        // Funciones de log (compatibles con la API previa)
+        function log(tabId, message) {
+            FloatingLog.append(tabId, message);
+        }
+        function clearLog(tabId) {
+            FloatingLog.clear(tabId);
         }
         
         // ========== PESTAÑA: DESCARGAR ==========
+        // ========== BUSCADOR YOUTUBE (PESTAÑA DESCARGAR) ==========
+        let ytSearchDebounceTimer = null;
+        let ytSearchAbortController = null;
+        let ytSearchHighlightedIndex = -1;
+        let ytSearchLastResults = [];
+
+        function formatYtViews(views) {
+            if (views == null || isNaN(views)) return '';
+            const n = Number(views);
+            if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+            if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+            if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+            return String(n);
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function hideYtSearchResults() {
+            const box = document.getElementById('yt-search-results');
+            if (box) {
+                box.classList.remove('visible');
+                box.innerHTML = '';
+            }
+            ytSearchHighlightedIndex = -1;
+            ytSearchLastResults = [];
+        }
+
+        function renderYtSearchResults(results) {
+            const box = document.getElementById('yt-search-results');
+            if (!box) return;
+            ytSearchLastResults = results || [];
+            ytSearchHighlightedIndex = -1;
+
+            if (!results || results.length === 0) {
+                box.innerHTML = '<div class="yt-search-empty">Sin resultados</div>';
+                box.classList.add('visible');
+                return;
+            }
+
+            let html = '';
+            results.forEach((r, idx) => {
+                const title = escapeHtml(r.title);
+                const uploader = escapeHtml(r.uploader);
+                const duration = escapeHtml(r.duration_str || '');
+                const views = formatYtViews(r.view_count);
+                const meta = [uploader, views ? `${views} vistas` : ''].filter(Boolean).join(' · ');
+                html += `<div class="yt-search-item" data-idx="${idx}" data-url="${escapeHtml(r.url)}" data-id="${escapeHtml(r.id)}">
+                    <div class="yt-search-item-thumb">
+                        <img src="${escapeHtml(r.thumbnail)}" alt="" onerror="this.style.display='none'">
+                        ${duration ? `<span class="yt-search-item-duration">${duration}</span>` : ''}
+                    </div>
+                    <div class="yt-search-item-info">
+                        <div class="yt-search-item-title">${title}</div>
+                        <div class="yt-search-item-meta">${meta}</div>
+                    </div>
+                    <div class="yt-search-item-actions">
+                        <button type="button" class="btn btn-primary" data-yt-action="pick" title="Pasar al campo URL">Seleccionar</button>
+                        <button type="button" class="btn btn-success" data-yt-action="download" title="Descargar con metadatos">📥 Descargar</button>
+                    </div>
+                </div>`;
+            });
+            box.innerHTML = html;
+            box.classList.add('visible');
+        }
+
+        async function performYtSearch(query) {
+            const spinner = document.getElementById('yt-search-spinner');
+            const box = document.getElementById('yt-search-results');
+
+            if (!query || query.length < 2) {
+                hideYtSearchResults();
+                if (spinner) spinner.classList.remove('active');
+                return;
+            }
+
+            if (ytSearchAbortController) {
+                try { ytSearchAbortController.abort(); } catch (e) {}
+            }
+            ytSearchAbortController = new AbortController();
+
+            if (spinner) spinner.classList.add('active');
+
+            try {
+                const resp = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}&limit=8`, {
+                    signal: ytSearchAbortController.signal
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    renderYtSearchResults(data.results || []);
+                } else {
+                    if (box) {
+                        box.innerHTML = `<div class="yt-search-error">❌ ${escapeHtml(data.error || 'Error en la búsqueda')}</div>`;
+                        box.classList.add('visible');
+                    }
+                }
+            } catch (e) {
+                if (e.name === 'AbortError') return;
+                if (box) {
+                    box.innerHTML = `<div class="yt-search-error">❌ ${escapeHtml(e.message)}</div>`;
+                    box.classList.add('visible');
+                }
+            } finally {
+                if (spinner) spinner.classList.remove('active');
+            }
+        }
+
+        function pickYtResult(idx, autoDownload) {
+            const r = ytSearchLastResults[idx];
+            if (!r) return;
+            const urlInput = document.getElementById('direct-url');
+            if (urlInput) urlInput.value = r.url;
+            const searchInput = document.getElementById('yt-search-input');
+            if (searchInput) searchInput.value = r.title;
+            hideYtSearchResults();
+            if (autoDownload) {
+                downloadDirect();
+            }
+        }
+
+        function highlightYtResult(newIdx) {
+            const items = document.querySelectorAll('#yt-search-results .yt-search-item');
+            if (!items.length) return;
+            if (newIdx < 0) newIdx = items.length - 1;
+            if (newIdx >= items.length) newIdx = 0;
+            items.forEach(el => el.classList.remove('highlighted'));
+            const target = items[newIdx];
+            if (target) {
+                target.classList.add('highlighted');
+                target.scrollIntoView({ block: 'nearest' });
+            }
+            ytSearchHighlightedIndex = newIdx;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const input = document.getElementById('yt-search-input');
+            const box = document.getElementById('yt-search-results');
+            if (!input || !box) return;
+
+            input.addEventListener('input', () => {
+                const q = input.value.trim();
+                if (ytSearchDebounceTimer) clearTimeout(ytSearchDebounceTimer);
+                if (!q || q.length < 2) {
+                    hideYtSearchResults();
+                    const spinner = document.getElementById('yt-search-spinner');
+                    if (spinner) spinner.classList.remove('active');
+                    return;
+                }
+                ytSearchDebounceTimer = setTimeout(() => performYtSearch(q), 350);
+            });
+
+            input.addEventListener('focus', () => {
+                if (ytSearchLastResults.length > 0) box.classList.add('visible');
+            });
+
+            input.addEventListener('keydown', (e) => {
+                const visible = box.classList.contains('visible');
+                if (e.key === 'ArrowDown') {
+                    if (!visible) return;
+                    e.preventDefault();
+                    highlightYtResult(ytSearchHighlightedIndex + 1);
+                } else if (e.key === 'ArrowUp') {
+                    if (!visible) return;
+                    e.preventDefault();
+                    highlightYtResult(ytSearchHighlightedIndex - 1);
+                } else if (e.key === 'Enter') {
+                    if (visible && ytSearchHighlightedIndex >= 0) {
+                        e.preventDefault();
+                        pickYtResult(ytSearchHighlightedIndex, false);
+                    }
+                } else if (e.key === 'Escape') {
+                    hideYtSearchResults();
+                }
+            });
+
+            box.addEventListener('click', (e) => {
+                const item = e.target.closest('.yt-search-item');
+                if (!item) return;
+                const idx = parseInt(item.getAttribute('data-idx'), 10);
+                if (isNaN(idx)) return;
+                const actionBtn = e.target.closest('[data-yt-action]');
+                const action = actionBtn ? actionBtn.getAttribute('data-yt-action') : 'pick';
+                pickYtResult(idx, action === 'download');
+            });
+
+            document.addEventListener('click', (e) => {
+                if (e.target.closest('.yt-search-wrapper')) return;
+                hideYtSearchResults();
+            });
+        });
+
         async function downloadDirect() {
             const url = document.getElementById('direct-url').value.trim();
             if (!url) {
@@ -1084,8 +2232,10 @@
                         log('download', `❌ Error: ${data.error}`);
                         if (data.error_detail) log('download', `📋 Detalle:\n${data.error_detail}`);
                     } else if (data.logs) {
+                        const sectionEl = document.querySelector('#floating-log-body .log-section[data-log-section="download"]');
+                        const existing = sectionEl ? sectionEl.textContent : '';
                         data.logs.forEach(logMsg => {
-                            if (!document.getElementById('download-log').textContent.includes(logMsg)) {
+                            if (!existing.includes(logMsg)) {
                                 log('download', logMsg);
                             }
                         });
@@ -1672,7 +2822,11 @@
                     <div class="context-menu-item" onclick="playSelectedSong()">🎵 Escuchar canción</div>
                     <div class="context-menu-item" onclick="measureVolumeFromContext()">📊 Recalcular volumen</div>
                     <div class="context-menu-item" onclick="adjustVolume(2)">🔊 Subir volumen (+2 dB)</div>
+                    <div class="context-menu-item" onclick="adjustVolume(5)">🔊 Subir volumen (+5 dB)</div>
+                    <div class="context-menu-item" onclick="adjustVolume(10)">🔊 Subir volumen (+10 dB)</div>
                     <div class="context-menu-item" onclick="adjustVolume(-2)">🔉 Bajar volumen (-2 dB)</div>
+                    <div class="context-menu-item" onclick="adjustVolume(-5)">🔉 Bajar volumen (-5 dB)</div>
+                    <div class="context-menu-item" onclick="adjustVolume(-10)">🔉 Bajar volumen (-10 dB)</div>
                     <div class="context-menu-item" onclick="generateWaveformFromContext()">〰️ Generar waveform</div>
                     <div class="context-menu-item" onclick="reclassifyFromContext()">🏷️ Volver a clasificar</div>
                     <div class="context-menu-item" onclick="redownloadSong()">🔄 Volver a descargar (rápido)</div>
@@ -1862,8 +3016,7 @@
         }
         
         async function runMeasureVolume(videoIds) {
-            const logEl = document.getElementById('database-log');
-            if (logEl) logEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            if (window.FloatingLog) { FloatingLog.setVisible(true); FloatingLog.setActiveTab('database'); }
             log('database', `📊 Recalculando volumen: ${videoIds.length} canción(es)...`);
             let ok = 0, fail = 0;
             for (const videoId of videoIds) {
@@ -1940,8 +3093,7 @@
                 return;
             }
             hideContextMenu();
-            const logEl = document.getElementById('database-log');
-            if (logEl) logEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            if (window.FloatingLog) { FloatingLog.setVisible(true); FloatingLog.setActiveTab('database'); }
             log('database', `🏷️ Volver a clasificar: ${ids.length} canción(es) con Essentia...`);
             let ok = 0, fail = 0;
             for (const videoId of ids) {
@@ -2482,19 +3634,33 @@
                         progressInfo.textContent = infoText;
                     }
                     
+                    // Volcar logs del backend en la consola flotante (sección 'playlist')
+                    if (Array.isArray(data.logs) && data.logs.length > 0) {
+                        const sectionEl = document.querySelector('#floating-log-body .log-section[data-log-section="playlist"]');
+                        const existing = sectionEl ? sectionEl.textContent : '';
+                        data.logs.forEach(logMsg => {
+                            if (logMsg && !existing.includes(logMsg)) {
+                                log('playlist', logMsg);
+                            }
+                        });
+                    }
+
                     if (status === 'completed') {
                         clearInterval(interval);
                         if (progressBar) {
                             progressBar.style.width = '100%';
                             progressBar.textContent = '100%';
                         }
-                        // Esperar un momento antes de recargar para que se vea el 100%
+                        log('playlist', `✅ Descarga completada: ${videoId}`);
                         setTimeout(() => {
                             loadPlaylist();
                         }, 1000);
                     } else if (status === 'error') {
                         clearInterval(interval);
                         log('playlist', `❌ Error: ${data.status.error || 'Error desconocido'}`);
+                        if (data.status && data.status.error_detail) {
+                            log('playlist', `📋 Detalle:\n${data.status.error_detail}`);
+                        }
                         if (progressBar) {
                             progressBar.style.background = '#f44336';
                             progressBar.textContent = 'Error';
@@ -2552,28 +3718,37 @@
         }
         
         function monitorImport(taskId) {
+            // Índice de los logs ya pintados (offset incremental).
+            // Antes se hacía dedup por textContent.includes() que era O(n²) y
+            // rompía con cualquier mensaje duplicado o que fuera substring de otro.
+            let lastShownIdx = 0;
+            // Polling más rápido para no perder logs de importaciones cortas
             const interval = setInterval(async () => {
                 try {
                     const response = await fetch(`/api/import/status/${taskId}`);
                     const data = await response.json();
-                    
+
+                    // SIEMPRE pintar logs nuevos primero, antes de tratar el final,
+                    // para no descartar mensajes generados entre el último poll y
+                    // el cambio de estado a completed/error.
+                    if (Array.isArray(data.logs) && data.logs.length > lastShownIdx) {
+                        for (let i = lastShownIdx; i < data.logs.length; i++) {
+                            log('import', data.logs[i]);
+                        }
+                        lastShownIdx = data.logs.length;
+                    }
+
                     if (data.status === 'completed') {
                         clearInterval(interval);
                         log('import', '✅ Importación completada');
                     } else if (data.status === 'error') {
                         clearInterval(interval);
                         log('import', `❌ Error: ${data.error}`);
-                    } else if (data.logs) {
-                        data.logs.forEach(logMsg => {
-                            if (!document.getElementById('import-log').textContent.includes(logMsg)) {
-                                log('import', logMsg);
-                            }
-                        });
                     }
                 } catch (error) {
                     console.error('Error:', error);
                 }
-            }, 2000);
+            }, 500);
         }
         
         // ========== PESTAÑA: TESTING ==========
@@ -2651,6 +3826,14 @@
                     document.getElementById('config-lastfm-key').value = data.config.LASTFM_API_KEY || '';
                     const essentiaEl = document.getElementById('config-essentia-classifier');
                     if (essentiaEl) essentiaEl.value = data.config.ESSENTIA_CLASSIFIER || 'auto';
+                    const cookiesBrowserEl = document.getElementById('config-cookies-browser');
+                    if (cookiesBrowserEl) cookiesBrowserEl.value = (data.config.YOUTUBE_COOKIES_BROWSER || '').toLowerCase();
+                    const cookiesProfileEl = document.getElementById('config-cookies-browser-profile');
+                    if (cookiesProfileEl) cookiesProfileEl.value = data.config.YOUTUBE_COOKIES_BROWSER_PROFILE || '';
+                    const cookiesFileEl = document.getElementById('config-cookies-file');
+                    if (cookiesFileEl) cookiesFileEl.value = data.config.YOUTUBE_COOKIES_FILE || '';
+                    const cookiesResultEl = document.getElementById('config-cookies-test-result');
+                    if (cookiesResultEl) cookiesResultEl.innerHTML = '';
                     log('config', '✅ Configuración cargada correctamente');
                 } else {
                     log('config', `❌ Error: ${data.error || 'Error desconocido'}`);
@@ -2664,6 +3847,110 @@
                 console.error('Error completo:', error);
             }
             loadYtDlpVersion();
+            checkFfmpegStatus();
+        }
+
+        async function checkFfmpegStatus() {
+            const statusText = document.getElementById('config-ffmpeg-status-text');
+            const pathEl = document.getElementById('config-ffmpeg-path');
+            const installArea = document.getElementById('config-ffmpeg-install-area');
+            const cmdEl = document.getElementById('config-ffmpeg-cmd');
+            const noteEl = document.getElementById('config-ffmpeg-note');
+            const installBtn = document.getElementById('config-ffmpeg-install-btn');
+            const dlLink = document.getElementById('config-ffmpeg-dl-link');
+            const sectionEl = document.getElementById('config-ffmpeg-section');
+
+            // También actualizar el banner global
+            const banner = document.getElementById('ffmpeg-alert-banner');
+            const bannerInstallBlock = document.getElementById('ffmpeg-install-block');
+            const bannerInstallBtn = document.getElementById('ffmpeg-install-btn');
+            const bannerDlLink = document.getElementById('ffmpeg-download-link');
+
+            try {
+                const resp = await fetch('/api/config/ffmpeg-status');
+                const data = await resp.json();
+
+                if (data.available) {
+                    if (statusText) {
+                        statusText.textContent = '✅ Disponible';
+                        statusText.style.color = 'green';
+                    }
+                    if (pathEl) {
+                        pathEl.textContent = `Ruta: ${data.ffmpeg_path}`;
+                        pathEl.style.display = 'block';
+                    }
+                    if (sectionEl) sectionEl.style.background = '#d4edda';
+                    if (installArea) installArea.style.display = 'none';
+                    if (banner) banner.style.display = 'none';
+                } else {
+                    if (statusText) {
+                        statusText.textContent = '❌ No encontrado';
+                        statusText.style.color = 'red';
+                    }
+                    if (sectionEl) sectionEl.style.background = '#fff3cd';
+                    if (installArea) installArea.style.display = 'block';
+
+                    // Rellenar instrucciones
+                    const cmd = data.install_cmd || '';
+                    const note = data.install_note || '';
+                    if (cmdEl) cmdEl.textContent = cmd;
+                    if (noteEl) noteEl.textContent = note;
+
+                    // Mostrar botón winget solo en Windows
+                    if (data.install_method === 'winget') {
+                        if (installBtn) installBtn.style.display = 'inline-block';
+                        if (bannerInstallBtn) bannerInstallBtn.style.display = 'inline-block';
+                        if (dlLink) dlLink.href = data.windows_url || data.download_url;
+                        if (bannerDlLink) bannerDlLink.href = data.windows_url || data.download_url;
+                    } else {
+                        if (installBtn) installBtn.style.display = 'none';
+                        if (bannerInstallBtn) bannerInstallBtn.style.display = 'none';
+                        if (dlLink) dlLink.href = data.download_url;
+                        if (bannerDlLink) bannerDlLink.href = data.download_url;
+                    }
+
+                    // Banner: mostrar instrucción de instalación
+                    if (bannerInstallBlock) {
+                        bannerInstallBlock.innerHTML = `
+                            <code style="background:#f8f9fa; padding:4px 8px; border-radius:4px; font-size:0.9em;">${cmd}</code>
+                            <br><span style="font-size:0.85em; color:#533f03; margin-top:4px; display:inline-block;">${note}</span>`;
+                    }
+                    if (banner) banner.style.display = 'block';
+                }
+            } catch (e) {
+                if (statusText) statusText.textContent = '— (error al comprobar)';
+            }
+        }
+
+        async function installFfmpegWinget() {
+            const statusEls = [
+                document.getElementById('config-ffmpeg-install-status'),
+                document.getElementById('ffmpeg-install-status')
+            ];
+            const btns = [
+                document.getElementById('config-ffmpeg-install-btn'),
+                document.getElementById('ffmpeg-install-btn')
+            ];
+
+            statusEls.forEach(el => { if (el) { el.textContent = '⏳ Instalando ffmpeg con winget... (puede tardar 1-2 minutos)'; el.style.color = '#856404'; } });
+            btns.forEach(b => { if (b) b.disabled = true; });
+
+            try {
+                const resp = await fetch('/api/config/ffmpeg-install', { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) {
+                    statusEls.forEach(el => { if (el) { el.textContent = '✅ ' + (data.message || 'ffmpeg instalado correctamente'); el.style.color = 'green'; } });
+                    // Re-comprobar estado
+                    setTimeout(checkFfmpegStatus, 500);
+                } else {
+                    const errMsg = data.error || 'Error desconocido';
+                    statusEls.forEach(el => { if (el) { el.textContent = '❌ ' + errMsg; el.style.color = 'red'; } });
+                    btns.forEach(b => { if (b) b.disabled = false; });
+                }
+            } catch (e) {
+                statusEls.forEach(el => { if (el) { el.textContent = '❌ Error: ' + e.message; el.style.color = 'red'; } });
+                btns.forEach(b => { if (b) b.disabled = false; });
+            }
         }
         
         async function loadYtDlpVersion() {
@@ -2712,30 +3999,103 @@
             }
             btn.disabled = false;
         }
-        
+
+        async function testCookies() {
+            const btn = document.getElementById('config-cookies-test-btn');
+            const resultEl = document.getElementById('config-cookies-test-result');
+            if (!btn || !resultEl) return;
+
+            const config = _gatherConfigFromUI();
+
+            btn.disabled = true;
+            resultEl.innerHTML = '<p style="color:#555;">⏳ Guardando configuración y probando cookies (puede tardar 20-30 segundos)...</p>';
+
+            try {
+                const saveResp = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const saveData = await saveResp.json();
+                if (!saveData.success) {
+                    resultEl.innerHTML = `<p style="color:#dc3545;">❌ No se pudo guardar la configuración: ${saveData.error || ''}</p>`;
+                    return;
+                }
+
+                const reloadResp = await fetch('/api/config/reload', { method: 'POST' });
+                const reloadData = await reloadResp.json();
+                if (!reloadData.success) {
+                    resultEl.innerHTML = `<p style="color:#dc3545;">❌ No se pudo aplicar la configuración: ${reloadData.error || ''}</p>`;
+                    return;
+                }
+
+                const resp = await fetch('/api/config/cookies/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    const sampleHtml = (data.sample || []).map(s =>
+                        `<li>${(s.title || '(sin título)').replace(/</g, '&lt;')}</li>`
+                    ).join('');
+                    resultEl.innerHTML = `
+                        <div style="padding:12px; background:#d4edda; border-radius:6px; border:1px solid #c3e6cb;">
+                            <p style="margin:0 0 6px; color:#155724;"><strong>✅ Cookies OK</strong> · Fuente: <code>${data.source || ''}</code></p>
+                            <p style="margin:0 0 6px;"><strong>Playlist:</strong> ${(data.title || 'LM').replace(/</g,'&lt;')} · <strong>${data.count}</strong> canciones obtenidas</p>
+                            ${sampleHtml ? `<ul style="margin:6px 0 0 18px;">${sampleHtml}</ul>` : ''}
+                        </div>`;
+                } else {
+                    const stderr = data.stderr ? `<details style="margin-top:6px;"><summary>Salida de yt-dlp</summary><pre style="white-space:pre-wrap;">${(data.stderr || '').replace(/</g,'&lt;')}</pre></details>` : '';
+                    const hint = data.hint ? `<p style="margin:6px 0 0; color:#856404;"><strong>💡</strong> ${(data.hint || '').replace(/</g,'&lt;')}</p>` : '';
+                    const source = data.source ? ` · Fuente: <code>${data.source}</code>` : '';
+                    resultEl.innerHTML = `
+                        <div style="padding:12px; background:#f8d7da; border-radius:6px; border:1px solid #f5c6cb;">
+                            <p style="margin:0 0 6px; color:#721c24;"><strong>❌ Las cookies no funcionan${source}</strong></p>
+                            <p style="margin:0;">${(data.error || '').replace(/</g,'&lt;')}</p>
+                            ${hint}
+                            ${stderr}
+                        </div>`;
+                }
+            } catch (e) {
+                resultEl.innerHTML = `<p style="color:#dc3545;">❌ Error: ${e.message}</p>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         // ========== EXPLORADOR DE ARCHIVOS ==========
         let browserMode = 'folder'; // 'folder' o 'file'
         let browserCallback = null;
         let currentBrowserPath = '';
         let selectedItem = null;
         
-        function openBrowser(mode, callback, initialPath = '') {
+        let browserExtensions = '';
+        let browserTitle = '';
+
+        function openBrowser(mode, callback, initialPath = '', options = {}) {
             browserMode = mode;
             browserCallback = callback;
             selectedItem = null;
-            
+            browserExtensions = options.extensions || '';
+            browserTitle = options.title || '';
+
             const modal = document.getElementById('file-browser-modal');
             const title = document.getElementById('browser-title');
             const selectBtn = document.getElementById('select-btn');
-            
-            if (mode === 'folder') {
+
+            if (browserTitle) {
+                title.textContent = browserTitle;
+                selectBtn.textContent = options.selectLabel || 'Seleccionar';
+            } else if (mode === 'folder') {
                 title.textContent = '📂 Seleccionar Carpeta';
                 selectBtn.textContent = 'Seleccionar Carpeta';
             } else {
                 title.textContent = '📄 Seleccionar Archivo de Base de Datos';
                 selectBtn.textContent = 'Seleccionar Archivo';
             }
-            
+
             modal.classList.add('active');
             loadDirectory(initialPath || '');
         }
@@ -2754,7 +4114,11 @@
             fileList.innerHTML = '<p style="padding: 20px; text-align: center; color: #666;">Cargando...</p>';
             
             try {
-                const response = await fetch(`/api/browse?path=${encodeURIComponent(path)}&mode=${browserMode}`);
+                let url = `/api/browse?path=${encodeURIComponent(path)}&mode=${browserMode}`;
+                if (browserExtensions) {
+                    url += `&extensions=${encodeURIComponent(browserExtensions)}`;
+                }
+                const response = await fetch(url);
                 const data = await response.json();
                 
                 if (!data.success) {
@@ -2908,14 +4272,33 @@
                 log('config', `🗄️ Base de datos seleccionada: ${path}`);
             }, currentValue);
         }
-        
-        async function saveConfig() {
-            const config = {
+
+        function browseCookiesFile() {
+            const currentValue = document.getElementById('config-cookies-file').value;
+            openBrowser('file', (path) => {
+                document.getElementById('config-cookies-file').value = path;
+                log('config', `🔐 Archivo de cookies seleccionado: ${path}`);
+            }, currentValue, {
+                extensions: '.txt',
+                title: '🔐 Seleccionar archivo de cookies (Netscape .txt)',
+                selectLabel: 'Seleccionar Archivo'
+            });
+        }
+
+        function _gatherConfigFromUI() {
+            return {
                 MUSIC_FOLDER: document.getElementById('config-music-folder').value,
                 DB_PATH: document.getElementById('config-db-path').value,
                 LASTFM_API_KEY: document.getElementById('config-lastfm-key').value,
-                ESSENTIA_CLASSIFIER: (document.getElementById('config-essentia-classifier') || {}).value || 'auto'
+                ESSENTIA_CLASSIFIER: (document.getElementById('config-essentia-classifier') || {}).value || 'auto',
+                YOUTUBE_COOKIES_BROWSER: (document.getElementById('config-cookies-browser') || {}).value || '',
+                YOUTUBE_COOKIES_BROWSER_PROFILE: (document.getElementById('config-cookies-browser-profile') || {}).value || '',
+                YOUTUBE_COOKIES_FILE: (document.getElementById('config-cookies-file') || {}).value || ''
             };
+        }
+
+        async function saveConfig() {
+            const config = _gatherConfigFromUI();
             
             clearLog('config');
             log('config', '💾 Guardando configuración...');
@@ -2939,12 +4322,7 @@
         }
         
         async function saveAndReloadConfig() {
-            const config = {
-                MUSIC_FOLDER: document.getElementById('config-music-folder').value,
-                DB_PATH: document.getElementById('config-db-path').value,
-                LASTFM_API_KEY: document.getElementById('config-lastfm-key').value,
-                ESSENTIA_CLASSIFIER: (document.getElementById('config-essentia-classifier') || {}).value || 'auto'
-            };
+            const config = _gatherConfigFromUI();
             
             clearLog('config');
             log('config', '💾 Guardando configuración...');
@@ -3043,9 +4421,257 @@
             }
         }
         
+        // ============================================================
+        // MODO RADIO (reproductor flotante con shuffle de toda la BD)
+        // ============================================================
+        const RadioPlayer = (() => {
+            const STORAGE_KEY = 'radioPlayerState_v1';
+            const state = {
+                visible: false,
+                minimized: false,
+                playlist: [],     // canciones barajadas (objetos {video_id, title, artist, file_path, ...})
+                index: -1,        // índice de la canción actual dentro de playlist
+                isPlaying: false,
+                isLoading: false,
+                lastError: null,
+                consecutiveErrors: 0
+            };
+
+            let panelEl, audioEl, toggleEl;
+            let titleEl, artistEl, metaEl, statusEl;
+            let btnPlay, btnNext, btnMin, btnClose;
+
+            function loadPersisted() {
+                try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (raw) {
+                        const saved = JSON.parse(raw);
+                        if (typeof saved.visible === 'boolean') state.visible = saved.visible;
+                        if (typeof saved.minimized === 'boolean') state.minimized = saved.minimized;
+                    }
+                } catch (_) { /* ignorar */ }
+            }
+            function persist() {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                        visible: state.visible,
+                        minimized: state.minimized
+                    }));
+                } catch (_) { /* ignorar */ }
+            }
+
+            function setVisible(visible) {
+                state.visible = visible;
+                panelEl.classList.toggle('hidden', !visible);
+                toggleEl.classList.toggle('visible', !visible);
+                persist();
+            }
+            function setMinimized(min) {
+                state.minimized = min;
+                panelEl.classList.toggle('minimized', min);
+                persist();
+            }
+
+            function shuffleInPlace(arr) {
+                for (let i = arr.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [arr[i], arr[j]] = [arr[j], arr[i]];
+                }
+                return arr;
+            }
+
+            async function fetchAllSongs() {
+                const res = await fetch('/api/database/songs?limit=0&show_ignored=false');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Error obteniendo canciones');
+                const songs = (data.songs || []).filter(s => s && s.file_path && String(s.file_path).trim() !== '');
+                return songs;
+            }
+
+            function setStatus(msg, isError = false) {
+                state.lastError = isError ? msg : null;
+                statusEl.textContent = msg || '';
+                statusEl.classList.toggle('error', isError);
+            }
+
+            function renderCurrent() {
+                const song = state.playlist[state.index];
+                if (!song) {
+                    titleEl.textContent = '— Sin canción cargada —';
+                    artistEl.textContent = state.isLoading ? 'Cargando…' : 'Pulsa ▶ para empezar';
+                    metaEl.textContent = '';
+                } else {
+                    titleEl.textContent = song.title || '(sin título)';
+                    artistEl.textContent = song.artist || 'Desconocido';
+                    const parts = [];
+                    if (song.genre) parts.push(song.genre);
+                    if (song.year) parts.push(song.year);
+                    parts.push(`${state.index + 1}/${state.playlist.length}`);
+                    metaEl.textContent = parts.join(' · ');
+                }
+                btnPlay.textContent = state.isPlaying ? '⏸' : '▶';
+                btnPlay.title = state.isPlaying ? 'Pausar' : 'Play';
+                btnNext.disabled = state.playlist.length === 0;
+                panelEl.classList.toggle('is-playing', state.isPlaying);
+                toggleEl.classList.toggle('is-playing', state.isPlaying);
+            }
+
+            async function ensurePlaylist() {
+                if (state.playlist.length > 0) return true;
+                state.isLoading = true;
+                setStatus('Cargando canciones de la base de datos…');
+                renderCurrent();
+                try {
+                    const songs = await fetchAllSongs();
+                    if (songs.length === 0) {
+                        setStatus('No hay canciones reproducibles en la base de datos.', true);
+                        state.isLoading = false;
+                        renderCurrent();
+                        return false;
+                    }
+                    state.playlist = shuffleInPlace(songs.slice());
+                    state.index = -1;
+                    state.consecutiveErrors = 0;
+                    setStatus(`${songs.length} canciones cargadas. Modo aleatorio activado.`);
+                } catch (e) {
+                    setStatus(`Error al cargar canciones: ${e.message}`, true);
+                    state.isLoading = false;
+                    renderCurrent();
+                    return false;
+                }
+                state.isLoading = false;
+                return true;
+            }
+
+            function loadAndPlayIndex(i) {
+                const song = state.playlist[i];
+                if (!song) return false;
+                state.index = i;
+                const url = `/api/database/file?path=${encodeURIComponent(song.file_path)}`;
+                audioEl.src = url;
+                renderCurrent();
+                const playPromise = audioEl.play();
+                if (playPromise && typeof playPromise.then === 'function') {
+                    playPromise.catch(err => {
+                        // Errores de autoplay o de archivo: avanzar
+                        setStatus(`No se pudo reproducir (${err.name || 'error'}). Saltando…`, true);
+                        handleTrackError();
+                    });
+                }
+                return true;
+            }
+
+            async function start() {
+                const ok = await ensurePlaylist();
+                if (!ok) return;
+                loadAndPlayIndex(0);
+            }
+
+            function next() {
+                if (state.playlist.length === 0) {
+                    start();
+                    return;
+                }
+                let nextIdx = state.index + 1;
+                if (nextIdx >= state.playlist.length) {
+                    // Re-barajar para seguir indefinidamente
+                    shuffleInPlace(state.playlist);
+                    nextIdx = 0;
+                    setStatus('Lista terminada, re-barajando…');
+                }
+                loadAndPlayIndex(nextIdx);
+            }
+
+            function handleTrackError() {
+                state.consecutiveErrors++;
+                if (state.consecutiveErrors >= 5) {
+                    setStatus('Demasiados errores seguidos. Detenido.', true);
+                    audioEl.pause();
+                    state.isPlaying = false;
+                    state.consecutiveErrors = 0;
+                    renderCurrent();
+                    return;
+                }
+                setTimeout(() => next(), 250);
+            }
+
+            async function togglePlay() {
+                if (state.playlist.length === 0 || state.index < 0) {
+                    await start();
+                    return;
+                }
+                if (audioEl.paused) {
+                    const p = audioEl.play();
+                    if (p && typeof p.then === 'function') {
+                        p.catch(err => setStatus(`No se pudo reanudar (${err.name || 'error'}).`, true));
+                    }
+                } else {
+                    audioEl.pause();
+                }
+            }
+
+            function bindAudioEvents() {
+                audioEl.addEventListener('play', () => {
+                    state.isPlaying = true;
+                    state.consecutiveErrors = 0;
+                    setStatus('');
+                    renderCurrent();
+                });
+                audioEl.addEventListener('pause', () => {
+                    state.isPlaying = false;
+                    renderCurrent();
+                });
+                audioEl.addEventListener('ended', () => {
+                    next();
+                });
+                audioEl.addEventListener('error', () => {
+                    setStatus('Error al cargar el archivo. Saltando…', true);
+                    handleTrackError();
+                });
+            }
+
+            function init() {
+                panelEl   = document.getElementById('radio-player');
+                audioEl   = document.getElementById('radio-audio');
+                toggleEl  = document.getElementById('radio-toggle');
+                titleEl   = document.getElementById('radio-track-title');
+                artistEl  = document.getElementById('radio-track-artist');
+                metaEl    = document.getElementById('radio-track-meta');
+                statusEl  = document.getElementById('radio-status');
+                btnPlay   = document.getElementById('btn-radio-play');
+                btnNext   = document.getElementById('btn-radio-next');
+                btnMin    = document.getElementById('btn-radio-minimize');
+                btnClose  = document.getElementById('btn-radio-close');
+
+                if (!panelEl || !audioEl) return;
+
+                loadPersisted();
+                setVisible(state.visible);
+                setMinimized(state.minimized);
+
+                bindAudioEvents();
+                btnPlay.addEventListener('click', togglePlay);
+                btnNext.addEventListener('click', next);
+                btnMin.addEventListener('click', () => setMinimized(!state.minimized));
+                btnClose.addEventListener('click', () => setVisible(false));
+                toggleEl.addEventListener('click', () => {
+                    setVisible(true);
+                    if (state.minimized) setMinimized(false);
+                });
+
+                renderCurrent();
+            }
+
+            return { init };
+        })();
+
         // Cargar playlist al iniciar
         window.addEventListener('DOMContentLoaded', () => {
+            FloatingLog.init();
+            RadioPlayer.init();
             loadPlaylist();
+            checkFfmpegStatus();
         });
     </script>
 </body>

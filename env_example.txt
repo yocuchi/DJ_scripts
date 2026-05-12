@@ -17,3 +17,15 @@ MUSIC_FOLDER=/ruta/a/tu/carpeta/de/musica
 # Obtén una gratis en: https://www.last.fm/api/account/create
 # LASTFM_API_KEY=tu_api_key_aqui
 
+# Opcional: cookies de YouTube (necesarias para acceder a tu lista "Me gusta" de
+# YouTube Music: https://music.youtube.com/playlist?list=LM y a videos privados).
+#
+# Opción 1 (recomendada): leer cookies directamente del navegador
+# Valores válidos: brave, chrome, chromium, edge, firefox, opera, safari, vivaldi, whale
+# YOUTUBE_COOKIES_BROWSER=chrome
+# YOUTUBE_COOKIES_BROWSER_PROFILE=Default   # Opcional, ej: "Default", "Profile 1"
+#
+# Opción 2 (alternativa): archivo de cookies en formato Netscape (.txt) exportado
+# con una extensión tipo "Get cookies.txt LOCALLY".
+# YOUTUBE_COOKIES_FILE=/ruta/a/youtube_cookies.txt
+

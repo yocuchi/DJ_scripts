@@ -56,7 +56,9 @@ from download_youtube import (
     check_audio_volume, apply_volume_offset,
     get_liked_videos_from_url, process_imported_mp3,
     redownload_full, get_genre_from_essentia,
-    generate_waveform_data
+    generate_waveform_data,
+    SUPPORTED_COOKIE_BROWSERS, get_cookies_browser, get_cookies_file,
+    apply_cookies_to_opts, has_cookies_configured
 )
 from download_quick import download_quick
 from query_db import show_statistics, search_songs
@@ -200,6 +202,24 @@ def get_playlist():
                 # PRIMERO: Verificar si está rechazada o descargada (verificación rápida)
                 is_rejected = is_rejected_video(video_id)
                 existing_song = check_file_exists(video_id=video_id)
+
+                # Si no la encuentra por video_id, intentar por artista+título.
+                # Esto permite reconocer canciones importadas manualmente (que se
+                # guardan con video_id="imported_<hash>") o redescargadas con otro id.
+                if not existing_song:
+                    # Usar metadata cacheada si existe; si no, extraerla del título
+                    cached_meta = db.get_cached_metadata(video_id) or {}
+                    cand_artist = cached_meta.get('artist') or video.get('artist')
+                    cand_title = cached_meta.get('title')
+                    if not cand_title:
+                        try:
+                            extracted = extract_metadata_from_title(title, '', None) or {}
+                            cand_artist = cand_artist or extracted.get('artist')
+                            cand_title = extracted.get('title') or title
+                        except Exception:
+                            cand_title = title
+                    if cand_artist and cand_title:
+                        existing_song = check_file_exists(artist=cand_artist, title=cand_title)
                 
                 if hide_ignored and (is_rejected or existing_song):
                     skipped_count += 1
@@ -314,7 +334,20 @@ def download_song():
         try:
             download_status[video_id] = {'status': 'downloading', 'progress': 0, 'downloaded_bytes': 0, 'total_bytes': 0}
             download_logs[video_id] = []
-            
+
+            def add_log(msg):
+                """Añade un mensaje al log de la descarga (lo verá la consola flotante)."""
+                download_logs[video_id].append(str(msg))
+                try:
+                    print(f"[{time.strftime('%H:%M:%S')}] [{video_id[:8]}] {msg}")
+                except Exception:
+                    pass
+
+            add_log(f"🚀 Iniciando descarga de {video_url}")
+
+            # Estado para evitar spam del callback de progreso (solo logueamos hitos)
+            progress_state = {'last_logged_pct': -10}
+
             # Callback para actualizar el progreso
             def update_progress(d):
                 status = d.get('status', '')
@@ -323,17 +356,24 @@ def download_song():
                     total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
                     if total and total > 0:
                         # Calcular progreso entre 20% y 80% (la descarga real)
-                        # 20% es el inicio de la descarga, 80% es cuando termina
                         download_progress = int((downloaded / total) * 60)  # 0-60% de la descarga
                         progress = 20 + download_progress  # 20% a 80%
                         download_status[video_id].update({
                             'status': 'downloading',
-                            'progress': min(progress, 80),  # Máximo 80% durante la descarga
+                            'progress': min(progress, 80),
                             'downloaded_bytes': downloaded,
                             'total_bytes': total,
                             'speed': d.get('speed', 0),
                             'eta': d.get('eta', 0)
                         })
+                        # Log cada ~25% de la descarga real
+                        real_pct = int((downloaded / total) * 100)
+                        if real_pct - progress_state['last_logged_pct'] >= 25 or real_pct == 100:
+                            progress_state['last_logged_pct'] = real_pct
+                            mb_done = downloaded / (1024 * 1024)
+                            mb_total = total / (1024 * 1024)
+                            speed_mb = (d.get('speed') or 0) / (1024 * 1024)
+                            add_log(f"⬇️  Descargando... {real_pct}% ({mb_done:.1f}/{mb_total:.1f} MB) a {speed_mb:.2f} MB/s")
                     else:
                         download_status[video_id].update({
                             'status': 'downloading',
@@ -341,26 +381,37 @@ def download_song():
                             'total_bytes': 0
                         })
                 elif status == 'finished':
-                    # Cuando termina la descarga, ya estamos en 80%
                     download_status[video_id]['progress'] = 80
-            
+                    add_log("✅ Descarga del audio finalizada, procesando...")
+
             # Obtener información del video
-            download_status[video_id]['progress'] = 5  # 5% - Obteniendo info
+            download_status[video_id]['progress'] = 5
+            add_log("🔎 Obteniendo información del video...")
             video_info = get_video_info(video_url)
             if not video_info:
+                add_log("❌ No se pudo obtener información del video")
                 download_status[video_id] = {'status': 'error', 'error': 'No se pudo obtener información del video'}
                 return
-            
+
             title = video_info.get('title', '')
             description = video_info.get('description', '')
-            
+            add_log(f"🎬 Título: {title}")
+
             # Extraer metadatos
-            download_status[video_id]['progress'] = 10  # 10% - Extrayendo metadatos
+            download_status[video_id]['progress'] = 10
+            add_log("🏷️  Extrayendo metadatos del título...")
             metadata = extract_metadata_from_title(title, description, video_info)
-            
+            if metadata.get('artist'):
+                add_log(f"   👤 Artista: {metadata.get('artist')}")
+            if metadata.get('title'):
+                add_log(f"   🎵 Tema:    {metadata.get('title')}")
+            if metadata.get('year'):
+                add_log(f"   📅 Año:     {metadata.get('year')}")
+
             # Detectar género si no está
             if not metadata.get('genre'):
-                download_status[video_id]['progress'] = 15  # 15% - Detectando género
+                download_status[video_id]['progress'] = 15
+                add_log("🎼 Detectando género online...")
                 detected_genre = detect_genre_online(
                     metadata.get('artist'),
                     metadata.get('title', title),
@@ -370,50 +421,62 @@ def download_song():
                 )
                 if detected_genre:
                     metadata['genre'] = detected_genre
+                    add_log(f"   ✓ Género detectado: {detected_genre}")
                 else:
                     metadata['genre'] = 'Sin Clasificar'
-            
+                    add_log("   ⚠️  No se pudo detectar género (Sin Clasificar)")
+            else:
+                add_log(f"🎼 Género ya definido: {metadata.get('genre')}")
+
             # Obtener carpeta de salida
             output_folder = get_output_folder(MUSIC_FOLDER, metadata.get('genre'), metadata.get('year'))
-            
+            add_log(f"📁 Carpeta destino: {output_folder}")
+
             # Crear nombre de archivo
             if metadata.get('artist'):
                 filename = f"{metadata['artist']} - {metadata['title']}"
             else:
                 filename = metadata.get('title', title)
-            
+
             filename = sanitize_filename(filename)
             output_path = output_folder / filename
-            
+
             # Descargar (el progreso se actualizará automáticamente con el callback)
-            download_status[video_id]['progress'] = 20  # 20% - Iniciando descarga
+            download_status[video_id]['progress'] = 20
+            add_log(f"⬇️  Descargando audio: {filename}.mp3")
             if download_audio(video_url, str(output_path), metadata, progress_callback=update_progress):
-                download_status[video_id]['progress'] = 80  # 80% - Descarga completada, procesando
+                download_status[video_id]['progress'] = 80
                 mp3_file = Path(str(output_path) + '.mp3')
                 if not mp3_file.exists():
                     mp3_files = list(output_folder.glob(f"{filename}*.mp3"))
                     if mp3_files:
                         mp3_file = mp3_files[0]
-                
-                # No normalizar volumen en la descarga (se guarda el volumen medido en BD)
-                download_status[video_id]['progress'] = 85  # 85% - Procesando
-                
-                # Añadir metadatos ID3
-                download_status[video_id]['progress'] = 90  # 90% - Añadiendo metadatos
+
+                download_status[video_id]['progress'] = 85
+
+                download_status[video_id]['progress'] = 90
+                add_log("🏷️  Añadiendo metadatos ID3...")
                 add_id3_tags(str(mp3_file), metadata, video_info)
-                
-                # Registrar en base de datos
-                download_status[video_id]['progress'] = 95  # 95% - Registrando en BD
+
+                download_status[video_id]['progress'] = 95
+                add_log("💾 Registrando en base de datos...")
                 register_song_in_db(video_id, video_url, mp3_file, metadata, video_info, download_source='playlist')
-                
+
+                add_log(f"✅ Descarga completada: {mp3_file.name}")
                 download_status[video_id] = {'status': 'completed', 'progress': 100, 'file': str(mp3_file)}
             else:
+                add_log("❌ Error en la descarga del audio")
                 download_status[video_id] = {'status': 'error', 'error': 'Error en la descarga'}
-                
+
         except Exception as e:
-            download_status[video_id] = {'status': 'error', 'error': str(e)}
             import traceback
-            download_logs[video_id].append(traceback.format_exc())
+            tb = traceback.format_exc()
+            try:
+                download_logs[video_id].append(f"❌ Excepción: {e}")
+                download_logs[video_id].append(tb)
+            except Exception:
+                pass
+            download_status[video_id] = {'status': 'error', 'error': str(e), 'error_detail': tb}
     
     threading.Thread(target=download_thread, daemon=True).start()
     return jsonify({'success': True, 'message': 'Descarga iniciada'})
@@ -618,6 +681,93 @@ def get_video_info_endpoint():
             return jsonify({'success': False, 'error': 'No se pudo obtener información del video'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+def _format_duration_seconds(seconds):
+    """Convierte segundos en una cadena tipo m:ss o h:mm:ss."""
+    try:
+        seconds = int(seconds) if seconds is not None else None
+    except (ValueError, TypeError):
+        return None, None
+    if not seconds or seconds < 0:
+        return None, None
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
+    if h:
+        return seconds, f'{h}:{m:02d}:{s:02d}'
+    return seconds, f'{m}:{s:02d}'
+
+
+@app.route('/api/youtube/search', methods=['GET'])
+def search_youtube_endpoint():
+    """Busca videos en YouTube por texto, devolviendo sugerencias para descarga.
+
+    Query params:
+      q: texto a buscar (mínimo 2 caracteres)
+      limit: número máximo de resultados (1-20, por defecto 8)
+    """
+    query = (request.args.get('q') or '').strip()
+    try:
+        limit = int(request.args.get('limit', 8))
+    except (ValueError, TypeError):
+        limit = 8
+    limit = max(1, min(20, limit))
+
+    if not query or len(query) < 2:
+        return jsonify({'success': True, 'query': query, 'results': []})
+
+    try:
+        import yt_dlp as _yt_dlp
+    except ImportError:
+        return jsonify({'success': False, 'error': 'yt-dlp no está instalado'}), 500
+
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': True,
+        'skip_download': True,
+        'ignoreerrors': True,
+        'default_search': 'ytsearch',
+        'socket_timeout': 15,
+    }
+    apply_cookies_to_opts(ydl_opts)
+
+    try:
+        with _yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f'ytsearch{limit}:{query}', download=False)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    entries = (info or {}).get('entries') or []
+    results = []
+    for entry in entries:
+        if not entry:
+            continue
+        video_id = entry.get('id') or ''
+        if not video_id:
+            continue
+        thumbnail = entry.get('thumbnail')
+        if not thumbnail:
+            thumbs = entry.get('thumbnails') or []
+            if thumbs:
+                thumbnail = thumbs[-1].get('url')
+        if not thumbnail:
+            thumbnail = f'https://i.ytimg.com/vi/{video_id}/mqdefault.jpg'
+
+        duration_sec, duration_str = _format_duration_seconds(entry.get('duration'))
+
+        results.append({
+            'id': video_id,
+            'url': entry.get('url') or f'https://www.youtube.com/watch?v={video_id}',
+            'title': entry.get('title') or '',
+            'uploader': entry.get('uploader') or entry.get('channel') or '',
+            'duration': duration_sec,
+            'duration_str': duration_str,
+            'thumbnail': thumbnail,
+            'view_count': entry.get('view_count'),
+        })
+
+    return jsonify({'success': True, 'query': query, 'results': results})
 
 
 @app.route('/api/database/songs', methods=['GET'])
@@ -884,8 +1034,12 @@ def adjust_song_volume(video_id):
         return jsonify({'success': False, 'error': 'Archivo no encontrado'}), 404
     file_path = str(path_obj)
     
-    if not apply_volume_offset(file_path, delta_db):
-        return jsonify({'success': False, 'error': 'No se pudo aplicar el cambio de volumen (¿ffmpeg instalado?)'}), 500
+    ok, vol_error = apply_volume_offset(file_path, delta_db)
+    if not ok:
+        return jsonify({
+            'success': False,
+            'error': vol_error or 'No se pudo aplicar el cambio de volumen'
+        }), 500
     
     volume_lufs, _ = check_audio_volume(file_path)
     db.update_song(video_id, volume_lufs=volume_lufs, volume_offset_db=0)
@@ -1166,33 +1320,70 @@ def import_folder():
     task_id = str(uuid.uuid4())
     import_status[task_id] = {'status': 'importing'}
     import_logs[task_id] = []
-    
+
+    def add_log(msg: str):
+        """Añade un mensaje al log de la importación (visible en la consola flotante y en la terminal)."""
+        import_logs[task_id].append(str(msg))
+        try:
+            print(f"[{time.strftime('%H:%M:%S')}] [import {task_id[:8]}] {msg}")
+        except Exception:
+            pass
+
     def import_thread():
         try:
-            mp3_files = list(folder_path.glob('*.mp3'))
-            import_logs[task_id].append(f"Encontrados {len(mp3_files)} archivos MP3")
-            
-            for mp3_file in mp3_files:
+            add_log(f"📁 Carpeta a importar: {folder_path}")
+            add_log(f"🔎 Buscando archivos MP3 recursivamente (incluye subcarpetas)...")
+
+            # rglob es recursivo: encuentra MP3s en TODOS los subdirectorios.
+            # Antes se usaba glob() que solo miraba el primer nivel y devolvía 0
+            # cuando la carpeta tenía toda la música organizada en subcarpetas.
+            mp3_files = sorted(folder_path.rglob('*.mp3'))
+            total = len(mp3_files)
+
+            if total == 0:
+                add_log("⚠️  No se encontraron archivos MP3 en la carpeta ni en sus subcarpetas")
+                import_status[task_id] = {'status': 'completed', 'count': 0}
+                return
+
+            # Contar cuántas subcarpetas distintas hay para dar contexto en el log
+            subfolders = {mp3.parent for mp3 in mp3_files}
+            add_log(f"✅ Encontrados {total} archivos MP3 en {len(subfolders)} carpeta(s)")
+
+            ok_count = 0
+            skipped_count = 0
+            error_count = 0
+
+            for idx, mp3_file in enumerate(mp3_files, 1):
                 try:
-                    import_logs[task_id].append(f"Procesando: {mp3_file.name}")
+                    # Mostrar la ruta relativa para que el usuario sepa de qué subcarpeta viene
+                    try:
+                        rel_path = mp3_file.relative_to(folder_path)
+                    except ValueError:
+                        rel_path = mp3_file
+                    add_log(f"[{idx}/{total}] 🎵 Procesando: {rel_path}")
                     result = process_imported_mp3(
                         mp3_file,
                         MUSIC_FOLDER,
-                        log_callback=lambda msg: import_logs[task_id].append(msg)
+                        log_callback=add_log
                     )
                     if result:
-                        import_logs[task_id].append(f"✅ Procesado: {mp3_file.name}")
+                        ok_count += 1
+                        add_log(f"   ✅ Procesado: {mp3_file.name}")
                     else:
-                        import_logs[task_id].append(f"⚠️ Ya existe o error: {mp3_file.name}")
+                        skipped_count += 1
+                        add_log(f"   ⚠️ Ya existe o error: {mp3_file.name}")
                 except Exception as e:
-                    import_logs[task_id].append(f"❌ Error procesando {mp3_file.name}: {str(e)}")
-            
-            import_status[task_id] = {'status': 'completed', 'count': len(mp3_files)}
+                    error_count += 1
+                    add_log(f"   ❌ Error procesando {mp3_file.name}: {str(e)}")
+
+            add_log(f"📊 Resumen: {ok_count} procesadas · {skipped_count} ya existentes · {error_count} con error · total {total}")
+            import_status[task_id] = {'status': 'completed', 'count': total}
         except Exception as e:
             import_status[task_id] = {'status': 'error', 'error': str(e)}
             import traceback
-            import_logs[task_id].append(traceback.format_exc())
-    
+            add_log(f"❌ Excepción global en la importación: {e}")
+            add_log(traceback.format_exc())
+
     threading.Thread(target=import_thread, daemon=True).start()
     return jsonify({'success': True, 'task_id': task_id, 'message': 'Importación iniciada'})
 
@@ -1252,20 +1443,23 @@ def get_config():
         env_path = _get_config_dir() / '.env'
         
         if env_path.exists():
-            with open(env_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        parts = line.split('=', 1)
-                        if len(parts) == 2:
-                            key = parts[0].strip()
-                            value = parts[1].strip()
-                            # Remover comillas si las hay
-                            if value.startswith('"') and value.endswith('"'):
-                                value = value[1:-1].replace('\\\\', '\\')
-                            elif value.startswith("'") and value.endswith("'"):
-                                value = value[1:-1].replace('\\\\', '\\')
-                            config[key] = value
+            try:
+                with open(env_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            parts = line.split('=', 1)
+                            if len(parts) == 2:
+                                key = parts[0].strip()
+                                value = parts[1].strip()
+                                # Remover comillas si las hay
+                                if value.startswith('"') and value.endswith('"'):
+                                    value = value[1:-1].replace('\\\\', '\\')
+                                elif value.startswith("'") and value.endswith("'"):
+                                    value = value[1:-1].replace('\\\\', '\\')
+                                config[key] = value
+            except PermissionError as pe:
+                print(f"⚠️  Sin permiso para leer .env ({pe}); se devuelve config parcial")
         
         # Obtener la ruta real de la base de datos (por defecto si no está configurada)
         db_path_config = config.get('DB_PATH', '')
@@ -1280,13 +1474,232 @@ def get_config():
                 'MUSIC_FOLDER': config.get('MUSIC_FOLDER', ''),
                 'DB_PATH': db_path_config,
                 'LASTFM_API_KEY': config.get('LASTFM_API_KEY', ''),
-                'ESSENTIA_CLASSIFIER': config.get('ESSENTIA_CLASSIFIER', 'auto')
+                'ESSENTIA_CLASSIFIER': config.get('ESSENTIA_CLASSIFIER', 'auto'),
+                'YOUTUBE_COOKIES_BROWSER': config.get('YOUTUBE_COOKIES_BROWSER', ''),
+                'YOUTUBE_COOKIES_BROWSER_PROFILE': config.get('YOUTUBE_COOKIES_BROWSER_PROFILE', ''),
+                'YOUTUBE_COOKIES_FILE': config.get('YOUTUBE_COOKIES_FILE', '')
             }
         })
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/config/ffmpeg-status', methods=['GET'])
+def get_ffmpeg_status():
+    """Devuelve si ffmpeg está disponible y, si no, instrucciones de instalación."""
+    ffmpeg_path = shutil.which('ffmpeg')
+    ffprobe_path = shutil.which('ffprobe')
+    available = bool(ffmpeg_path)
+
+    if available:
+        return jsonify({
+            'success': True,
+            'available': True,
+            'ffmpeg_path': ffmpeg_path,
+            'ffprobe_path': ffprobe_path,
+        })
+
+    is_windows = sys.platform == 'win32'
+    is_linux = sys.platform.startswith('linux')
+    is_mac = sys.platform == 'darwin'
+
+    if is_windows:
+        install_method = 'winget'
+        install_cmd = 'winget install --id Gyan.FFmpeg -e --source winget'
+        install_note = 'Tras instalar, reinicia la aplicación para que detecte ffmpeg.'
+    elif is_mac:
+        install_method = 'homebrew'
+        install_cmd = 'brew install ffmpeg'
+        install_note = 'Tras instalar, reinicia la aplicación.'
+    else:
+        install_method = 'apt'
+        install_cmd = 'sudo apt install ffmpeg'
+        install_note = 'En otras distribuciones usa el gestor de paquetes correspondiente (dnf, pacman, etc.).'
+
+    return jsonify({
+        'success': True,
+        'available': False,
+        'ffmpeg_path': None,
+        'ffprobe_path': None,
+        'platform': sys.platform,
+        'install_method': install_method,
+        'install_cmd': install_cmd,
+        'install_note': install_note,
+        'download_url': 'https://ffmpeg.org/download.html',
+        'windows_url': 'https://www.gyan.dev/ffmpeg/builds/',
+    })
+
+
+@app.route('/api/config/ffmpeg-install', methods=['POST'])
+def install_ffmpeg_winget():
+    """Intenta instalar ffmpeg mediante winget (solo Windows)."""
+    if sys.platform != 'win32':
+        return jsonify({'success': False, 'error': 'Instalación automática solo disponible en Windows'}), 400
+
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['winget', 'install', '--id', 'Gyan.FFmpeg', '-e', '--source', 'winget', '--accept-package-agreements', '--accept-source-agreements'],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode == 0:
+            ffmpeg_path = shutil.which('ffmpeg')
+            return jsonify({
+                'success': True,
+                'message': 'ffmpeg instalado correctamente. Reinicia la aplicación para aplicar los cambios.',
+                'ffmpeg_path': ffmpeg_path,
+            })
+        else:
+            err = (result.stderr or result.stdout or '').strip() or f'Código de salida: {result.returncode}'
+            return jsonify({'success': False, 'error': err, 'output': result.stdout})
+    except FileNotFoundError:
+        return jsonify({'success': False, 'error': 'winget no está disponible en este sistema. Instala ffmpeg manualmente desde https://www.gyan.dev/ffmpeg/builds/'})
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'error': 'Tiempo de espera agotado. Instala ffmpeg manualmente.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/config/cookies/status', methods=['GET'])
+def get_cookies_status():
+    """Devuelve la fuente de cookies que está actualmente activa para yt-dlp."""
+    browser_cfg = get_cookies_browser()
+    cookies_file = get_cookies_file()
+    if browser_cfg:
+        source = 'browser'
+        details = {
+            'browser': browser_cfg[0],
+            'profile': browser_cfg[1] if len(browser_cfg) > 1 else None
+        }
+    elif cookies_file:
+        source = 'file'
+        details = {'file': cookies_file}
+    else:
+        source = None
+        details = {}
+    return jsonify({
+        'success': True,
+        'source': source,
+        'details': details,
+        'supported_browsers': list(SUPPORTED_COOKIE_BROWSERS)
+    })
+
+
+@app.route('/api/config/cookies/test', methods=['POST'])
+def test_cookies_endpoint():
+    """Prueba la configuración de cookies actual accediendo a la playlist 'LM' (Mi música que me gusta)."""
+    if not has_cookies_configured():
+        return jsonify({
+            'success': False,
+            'error': 'No hay cookies configuradas (ni navegador ni archivo). '
+                     'Configura YOUTUBE_COOKIES_BROWSER o YOUTUBE_COOKIES_FILE.'
+        })
+
+    try:
+        import yt_dlp as _yt_dlp
+    except ImportError:
+        return jsonify({'success': False, 'error': 'yt-dlp no está instalado'}), 500
+
+    browser_cfg = get_cookies_browser()
+    cookies_file = get_cookies_file()
+    if browser_cfg:
+        source_label = f"navegador {browser_cfg[0]}" + (
+            f" (perfil: {browser_cfg[1]})" if len(browser_cfg) > 1 else ''
+        )
+    else:
+        source_label = f"archivo {cookies_file}"
+
+    test_url = (request.json or {}).get('url') or 'https://music.youtube.com/playlist?list=LM'
+
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': 'in_playlist',
+        'playlistend': 3,
+        'ignoreerrors': True,
+    }
+    apply_cookies_to_opts(ydl_opts)
+
+    import io as _io
+    import sys as _sys
+    old_stderr = _sys.stderr
+    buf = _io.StringIO()
+    _sys.stderr = buf
+    try:
+        with _yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(test_url, download=False)
+        stderr_text = buf.getvalue()
+    except Exception as e:
+        stderr_text = buf.getvalue()
+        return jsonify({
+            'success': False,
+            'source': source_label,
+            'error': f'{type(e).__name__}: {e}',
+            'stderr': stderr_text.strip() or None,
+            'hint': _build_cookies_hint(str(e))
+        })
+    finally:
+        _sys.stderr = old_stderr
+
+    if not info:
+        return jsonify({
+            'success': False,
+            'source': source_label,
+            'error': 'yt-dlp no devolvió información de la playlist',
+            'stderr': stderr_text.strip() or None,
+            'hint': _build_cookies_hint(stderr_text)
+        })
+
+    entries = info.get('entries') or []
+    if hasattr(entries, '__iter__') and not isinstance(entries, (list, tuple, str)):
+        try:
+            entries = list(entries)
+        except Exception:
+            entries = []
+    entries = [e for e in entries if e is not None]
+
+    if not entries:
+        return jsonify({
+            'success': False,
+            'source': source_label,
+            'title': info.get('title'),
+            'error': 'La playlist se abrió pero no devolvió canciones (cookies posiblemente sin sesión válida)',
+            'stderr': stderr_text.strip() or None,
+            'hint': _build_cookies_hint(stderr_text)
+        })
+
+    sample = [
+        {'title': e.get('title'), 'id': e.get('id')}
+        for e in entries[:3]
+    ]
+    return jsonify({
+        'success': True,
+        'source': source_label,
+        'title': info.get('title') or 'Playlist',
+        'count': len(entries),
+        'sample': sample
+    })
+
+
+def _build_cookies_hint(error_text: str) -> str:
+    """Devuelve un mensaje de ayuda según el tipo de error de yt-dlp."""
+    txt = (error_text or '').lower()
+    if 'does not exist' in txt or 'this playlist does not exist' in txt:
+        return ('YouTube responde "playlist no existe": tus cookies no están autenticadas. '
+                'Si usas archivo, exporta las cookies de un perfil donde estés logueado en YouTube Music '
+                'y NO sigas usando ese perfil. Si usas navegador, asegúrate de tener sesión iniciada en él.')
+    if 'sign in' in txt or 'confirm you' in txt or 'bot' in txt:
+        return 'YouTube ha detectado actividad sospechosa. Reinicia sesión en el navegador o exporta cookies nuevas.'
+    if 'could not find' in txt and 'cookies' in txt:
+        return ('No se pudieron leer las cookies del navegador. Cierra todas las ventanas del navegador '
+                'antes de intentarlo (algunos navegadores bloquean el acceso al cookie store cuando están abiertos).')
+    if 'permission denied' in txt or 'access' in txt and 'denied' in txt:
+        return 'Permiso denegado al leer cookies. En Linux/macOS revisa permisos del archivo o keyring.'
+    return ''
 
 
 @app.route('/api/config/yt-dlp-version', methods=['GET'])
@@ -1339,8 +1752,8 @@ def _env_value_for_file(key: str, value: str) -> str:
     """Formatea un valor para .env: rutas con backslashes se guardan entre comillas para evitar corrupción."""
     if not value:
         return value
-    # DB_PATH y MUSIC_FOLDER pueden tener rutas Windows con \; sin comillas load_dotenv corrompe la ruta
-    if key in ('DB_PATH', 'MUSIC_FOLDER') and '\\' in value:
+    # Claves que pueden tener rutas Windows con \; sin comillas load_dotenv corrompe la ruta
+    if key in ('DB_PATH', 'MUSIC_FOLDER', 'YOUTUBE_COOKIES_FILE') and '\\' in value:
         escaped = value.replace('\\', '\\\\').replace('"', '\\"')
         return f'"{escaped}"'
     return value
@@ -1507,7 +1920,16 @@ def browse_filesystem():
     """Lista el contenido de un directorio para el explorador de archivos."""
     path = request.args.get('path', '')
     mode = request.args.get('mode', 'folder')  # 'folder' o 'file'
-    
+    # Extensiones a aceptar en modo 'file' (CSV, ej: ".txt,.json"). Si no se indica, defecto: .db/.sqlite
+    extensions_arg = (request.args.get('extensions', '') or '').strip()
+    if extensions_arg:
+        allowed_extensions = [
+            (e.strip().lower() if e.strip().startswith('.') else f".{e.strip().lower()}")
+            for e in extensions_arg.split(',') if e.strip()
+        ]
+    else:
+        allowed_extensions = ['.db', '.sqlite', '.sqlite3']
+
     try:
         # Si no hay ruta, usar el directorio home del usuario
         if not path:
@@ -1534,13 +1956,12 @@ def browse_filesystem():
             for item in os.listdir(path):
                 item_path = os.path.join(path, item)
                 is_dir = os.path.isdir(item_path)
-                
-                # En modo 'file', mostrar archivos .db o .sqlite también
+
                 if mode == 'file' and not is_dir:
                     ext = os.path.splitext(item)[1].lower()
-                    if ext not in ['.db', '.sqlite', '.sqlite3']:
+                    if ext not in allowed_extensions:
                         continue
-                
+
                 items.append({
                     'name': item,
                     'path': item_path,
@@ -1662,9 +2083,44 @@ def _ensure_yt_dlp_updated_at_startup():
         print(f"⚠️ Error al actualizar yt-dlp: {e}")
 
 
+def _check_ffmpeg_at_startup():
+    """Comprueba si ffmpeg está disponible y avisa por consola si no lo está."""
+    ffmpeg_ok = bool(shutil.which('ffmpeg'))
+    if ffmpeg_ok:
+        print(f"✅ ffmpeg detectado: {shutil.which('ffmpeg')}")
+        return
+    print()
+    print("=" * 65)
+    print("⚠️  ADVERTENCIA: ffmpeg NO está instalado o no está en el PATH")
+    print("   ffmpeg es NECESARIO para convertir el audio descargado a MP3.")
+    print("   Sin él, TODAS las descargas fallarán.")
+    print()
+    if sys.platform == 'win32':
+        print("   Instala ffmpeg con winget (abre una terminal como admin):")
+        print("   > winget install --id Gyan.FFmpeg -e --source winget")
+        print()
+        print("   O descárgalo manualmente desde:")
+        print("   https://www.gyan.dev/ffmpeg/builds/")
+    elif sys.platform == 'darwin':
+        print("   Instala ffmpeg con Homebrew:")
+        print("   $ brew install ffmpeg")
+    else:
+        print("   Instala ffmpeg con tu gestor de paquetes:")
+        print("   $ sudo apt install ffmpeg   (Debian/Ubuntu)")
+        print("   $ sudo dnf install ffmpeg   (Fedora/RHEL)")
+        print("   $ sudo pacman -S ffmpeg     (Arch)")
+    print()
+    print("   Después de instalar, REINICIA esta aplicación.")
+    print("=" * 65)
+    print()
+
+
 if __name__ == '__main__':
     # Verificar y actualizar yt-dlp al arranque si no está al día
     _ensure_yt_dlp_updated_at_startup()
+
+    # Comprobar si ffmpeg está disponible
+    _check_ffmpeg_at_startup()
 
     # Crear directorio de templates si no existe
     templates_dir = Path(__file__).parent / 'templates'
