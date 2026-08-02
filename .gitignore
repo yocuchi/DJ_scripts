@@ -26,3 +26,15 @@ __pycache__/
 *.pyd
 .Python
 
+# Base de datos local de la biblioteca (y sus ficheros WAL de SQLite)
+*.youtube_music.db
+*.youtube_music.db-shm
+*.youtube_music.db-wal
+
+# Basura creada al pasar rutas de Windows ('C:\...') en macOS/Linux:
+# se crean ficheros/carpetas cuyo nombre lleva las barras invertidas dentro
+C:*
+
+# Configuración local de Claude Code
+.claude/
+

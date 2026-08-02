@@ -9,6 +9,7 @@ import sys
 import re
 import json
 import struct
+import hashlib
 import urllib.parse
 import urllib.request
 import subprocess
@@ -18,7 +19,7 @@ from typing import Optional, Dict, Tuple
 from datetime import datetime
 import yt_dlp
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, TCON, APIC
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, TCON, APIC, TXXX
 from dotenv import load_dotenv
 from database import MusicDatabase
 
@@ -50,6 +51,12 @@ except ImportError:
 
 # No normalizar volumen al descargar: el audio se guarda tal cual; solo se mide el volumen (LUFS) para la BD.
 NORMALIZE_VOLUME_ON_DOWNLOAD = False
+
+# Escala de volumen para DJ (no broadcast). El grueso de la biblioteca vive entre -7 y -9 LUFS;
+# un track a -14 se dibuja pequeño en DJUCED y obliga a subir +5 dB de gain en la deck.
+DJ_TARGET_LUFS = -9.0      # objetivo al normalizar (-9 y no -8: los remixes Afro House pegan fuerte de kick)
+DJ_TARGET_TRUE_PEAK = -1.0  # dBTP: headroom suficiente para subir gain sin clipear
+DJ_LOW_VOLUME_LUFS = -11.0  # por debajo de esto conviene normalizar
 
 
 def test_essentia_installation():
@@ -991,20 +998,50 @@ def detect_genre_from_audio_file(file_path: str, log_callback=None) -> Optional[
         return None
 
 
+YEAR_MIN = 1900
+
+
+def parse_year(value: Optional[object]) -> Optional[str]:
+    """
+    Normaliza un año a 'YYYY' descartando valores no plausibles.
+
+    Acepta int o str en formato 'YYYY', 'YYYY-MM-DD' o 'YYYYMMDD'. Devuelve None si
+    el año cae fuera de YEAR_MIN..(año actual + 1), para que un dato corrupto no
+    termine creando carpetas de década absurdas como '1060s' o '5250s'.
+    """
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    year_max = datetime.now().year + 1
+
+    # Los 4 primeros dígitos cubren 'YYYY', 'YYYY-MM-DD' y 'YYYYMMDD'
+    match = re.match(r'(\d{4})', text)
+    if match and YEAR_MIN <= int(match.group(1)) <= year_max:
+        return match.group(1)
+
+    # Si no, buscar un año plausible en cualquier parte del texto
+    for found in re.findall(r'\b(?:19|20)\d{2}\b', text):
+        if YEAR_MIN <= int(found) <= year_max:
+            return found
+
+    return None
+
+
 def get_decade_from_year(year: Optional[str]) -> str:
     """
     Obtiene la década a partir del año.
-    Si no hay año, retorna 'Unknown'.
+    Si no hay año o no es plausible, retorna 'Unknown'.
     """
-    if not year:
+    normalized = parse_year(year)
+    if not normalized:
         return 'Unknown'
-    
-    try:
-        year_int = int(year)
-        decade = (year_int // 10) * 10
-        return f"{decade}s"
-    except (ValueError, TypeError):
-        return 'Unknown'
+
+    decade = (int(normalized) // 10) * 10
+    return f"{decade}s"
 
 
 def get_output_folder(base_folder: str, genre: Optional[str], year: Optional[str]) -> Path:
@@ -1048,54 +1085,38 @@ def extract_metadata_from_title(title: str, description: str = "", video_info: O
         'genre': None
     }
     
-    # PRIMERO: Intentar extraer el año de los metadatos de YouTube
+    # PRIMERO: Intentar extraer el año de los metadatos de YouTube.
+    # Las fuentes se prueban por orden de fiabilidad y se descarta la que no dé un
+    # año plausible, de forma que un release_year corrupto no impida caer en
+    # release_date o upload_date (antes se aceptaba a ciegas y generaba décadas
+    # imposibles como 1060s o 5250s).
     if video_info:
-        # Intentar obtener el año de release_year (más preciso)
-        if video_info.get('release_year'):
-            metadata['year'] = str(video_info.get('release_year'))
-        # Si no está disponible, intentar con release_date
-        elif video_info.get('release_date'):
-            release_date = video_info.get('release_date')
-            # release_date puede estar en formato YYYYMMDD o YYYY-MM-DD
-            if isinstance(release_date, str):
-                year_match = re.search(r'(\d{4})', release_date)
-                if year_match:
-                    metadata['year'] = year_match.group(1)
-            elif isinstance(release_date, (int, float)):
-                # Si es un timestamp o número, extraer año
-                date_str = str(int(release_date))
-                if len(date_str) >= 4:
-                    year_match = re.search(r'(\d{4})', date_str)
-                    if year_match:
-                        year = int(year_match.group(1))
-                        if 1900 <= year <= 2100:
-                            metadata['year'] = str(year)
-        # Intentar con release_timestamp (timestamp Unix)
-        elif video_info.get('release_timestamp'):
+        timestamp_year = None
+        release_timestamp = video_info.get('release_timestamp')
+        if isinstance(release_timestamp, (int, float)):
             try:
-                from datetime import datetime
-                timestamp = video_info.get('release_timestamp')
-                if isinstance(timestamp, (int, float)):
-                    dt = datetime.fromtimestamp(timestamp)
-                    metadata['year'] = str(dt.year)
+                timestamp_year = datetime.fromtimestamp(release_timestamp).year
             except (ValueError, OSError, OverflowError):
-                pass  # Si falla, continuar con otros métodos
-        # Como último recurso, usar upload_date (año de subida)
-        elif video_info.get('upload_date'):
-            upload_date = str(video_info.get('upload_date'))
-            if len(upload_date) >= 4:
-                # upload_date está en formato YYYYMMDD
-                year = upload_date[:4]
-                if year.isdigit() and 1900 <= int(year) <= 2100:
-                    metadata['year'] = year
-    
+                timestamp_year = None
+
+        for candidate in (
+            video_info.get('release_year'),
+            video_info.get('release_date'),
+            timestamp_year,
+            video_info.get('upload_date'),  # año de subida: último recurso
+        ):
+            metadata['year'] = parse_year(candidate)
+            if metadata['year']:
+                break
+
     # Si no se encontró año en los metadatos, intentar extraer del título
     if not metadata['year']:
         year_match = re.search(r'\b(19|20)\d{2}\b', title)
         if year_match:
-            metadata['year'] = year_match.group()
-            # Remover el año del título para limpiarlo
-            title = re.sub(r'\s*[\(\[\-]?\s*(19|20)\d{2}\s*[\)\]\-]?\s*', '', title)
+            metadata['year'] = parse_year(year_match.group())
+            if metadata['year']:
+                # Remover el año del título para limpiarlo
+                title = re.sub(r'\s*[\(\[\-]?\s*(19|20)\d{2}\s*[\)\]\-]?\s*', '', title)
     
     # Patrones comunes de formato: "Artista - Canción"
     # Primero intentar con guión como separador
@@ -1432,7 +1453,107 @@ def clean_youtube_url(url: str) -> str:
     return url
 
 
-def check_file_exists(video_id: Optional[str] = None, artist: Optional[str] = None, 
+def is_inside_library(file_path: Path, base_folder: Optional[str]) -> bool:
+    """
+    Indica si file_path ya vive dentro de la biblioteca base_folder.
+
+    Se usa para decidir entre mover y copiar al reorganizar por género: un
+    archivo que ya está en la biblioteca debe MOVERSE, porque copiarlo deja el
+    original huérfano en su carpeta anterior y la canción aparece duplicada en
+    DJUCED (que escanea el disco, no la BD). Un archivo importado desde fuera
+    sí se copia, para no vaciar la carpeta de origen del usuario.
+    """
+    if not base_folder:
+        return False
+    try:
+        return Path(file_path).resolve().is_relative_to(Path(base_folder).resolve())
+    except (OSError, ValueError):
+        return False
+
+
+def resolve_library_path(stored_path: str, base_folder: Optional[str] = None) -> Optional[Path]:
+    """
+    Traduce una ruta guardada en la BD a una ruta válida en la plataforma actual.
+
+    Esta biblioteca se ha usado desde WSL ('/mnt/c/...'), Windows ('C:\\...') y
+    macOS, así que las rutas antiguas no resuelven aquí. Sin esta traducción
+    check_file_exists las interpreta como "archivo borrado" y vuelve a insertar
+    la canción, que es el origen de los duplicados en la BD.
+
+    Devuelve la ruta encontrada, o None si el archivo no aparece.
+    """
+    if not stored_path:
+        return None
+
+    # 1) La ruta tal cual (caso normal: se guardó en esta misma plataforma).
+    try:
+        direct = Path(stored_path)
+        if direct.exists():
+            return direct
+    except OSError:
+        pass
+
+    if not base_folder:
+        return None
+
+    base = Path(base_folder)
+    # El nombre de archivo es lo único estable entre plataformas. Se normalizan
+    # las barras porque una ruta de Windows no se parsea con Path en macOS.
+    filename = stored_path.replace('\\', '/').rstrip('/').split('/')[-1]
+    if not filename:
+        return None
+
+    # 2) Misma estructura <genero>/<decada>/<archivo> dentro de la biblioteca local.
+    parts = [p for p in stored_path.replace('\\', '/').split('/') if p]
+    if len(parts) >= 3:
+        candidate = base / parts[-3] / parts[-2] / filename
+        try:
+            if candidate.exists():
+                return candidate
+        except OSError:
+            pass
+
+    # 3) Mismo nombre en cualquier <genero>/<decada>: cubre los archivos
+    #    reclasificados a otro género sin que se actualizara la BD.
+    #    Se recorre a mano en vez de con glob() porque muchos nombres contienen
+    #    corchetes ('... [videoId].mp3') y glob los trataría como comodines.
+    try:
+        for genre_dir in base.iterdir():
+            if not genre_dir.is_dir():
+                continue
+            for decade_dir in genre_dir.iterdir():
+                if not decade_dir.is_dir():
+                    continue
+                candidate = decade_dir / filename
+                if candidate.exists():
+                    return candidate
+    except OSError:
+        pass
+
+    return None
+
+
+def stable_imported_video_id(file_path: Path, base_folder: Optional[str] = None) -> str:
+    """
+    Genera un video_id determinista para archivos importados sin ID de YouTube.
+
+    Antes se usaba abs(hash(ruta)), pero el hash de strings en Python está
+    aleatorizado por proceso: el mismo archivo obtenía un video_id distinto en
+    cada ejecución, así que el UNIQUE de video_id nunca frenaba la reinserción.
+    Se usa la ruta relativa a la biblioteca para que el id no cambie al mover la
+    biblioteca de sitio ni entre plataformas.
+    """
+    key = str(file_path)
+    if base_folder:
+        try:
+            key = str(Path(file_path).resolve().relative_to(Path(base_folder).resolve()))
+        except (OSError, ValueError):
+            pass
+    key = key.replace('\\', '/')
+    return f"imported_{hashlib.sha1(key.encode('utf-8')).hexdigest()[:16]}"
+
+
+def check_file_exists(video_id: Optional[str] = None, artist: Optional[str] = None,
                      title: Optional[str] = None, base_folder: str = None) -> Optional[Dict]:
     """
     Verifica si una canción ya existe en la base de datos.
@@ -1441,30 +1562,49 @@ def check_file_exists(video_id: Optional[str] = None, artist: Optional[str] = No
         video_id: ID del video de YouTube (más preciso)
         artist: Nombre del artista
         title: Título de la canción
-        base_folder: (deprecated, se mantiene por compatibilidad)
-    
+        base_folder: Carpeta de la biblioteca, para localizar archivos cuya ruta
+                     en la BD se guardó en otra plataforma. Por defecto MUSIC_FOLDER.
+
     Returns:
         Diccionario con los datos de la canción si existe, None si no existe.
+        Si la ruta guardada estaba obsoleta, se corrige en la BD al detectarla.
     """
+    # La mayoría de las llamadas no pasan base_folder; sin él no se pueden
+    # traducir las rutas guardadas en otra plataforma y se reinsertarían.
+    if not base_folder:
+        base_folder = MUSIC_FOLDER
+
+    def _match(song: Dict) -> Optional[Dict]:
+        """Devuelve la canción si su archivo sigue en disco, reparando la ruta si cambió."""
+        resolved = resolve_library_path(song.get('file_path'), base_folder)
+        if not resolved:
+            return None
+        # Si la ruta guardada no coincide con la real (biblioteca migrada de
+        # plataforma o archivo reclasificado), se corrige aquí. Sin esto la
+        # próxima ejecución volvería a no encontrarla y crearía un duplicado.
+        if str(resolved) != str(song.get('file_path')):
+            try:
+                db.update_song(song['video_id'], file_path=str(resolved))
+                song = dict(song, file_path=str(resolved))
+            except Exception as e:
+                print(f"⚠️  No se pudo actualizar la ruta de '{song.get('title')}': {e}")
+        return song
+
     if video_id:
         song = db.get_song_by_video_id(video_id)
         if song:
-            # Verificar que el archivo realmente existe
-            file_path = Path(song['file_path'])
-            if file_path.exists():
-                return song
-            else:
-                # El archivo fue eliminado, actualizar BD
-                print(f"⚠️  Archivo en BD no existe: {song['file_path']}")
-                # Opcional: eliminar de BD o marcar como eliminado
-    
+            matched = _match(song)
+            if matched:
+                return matched
+            # El archivo fue eliminado de verdad (no es una ruta de otra plataforma)
+            print(f"⚠️  Archivo en BD no existe: {song['file_path']}")
+
     if artist and title:
-        songs = db.find_song(artist=artist, title=title)
-        for song in songs:
-            file_path = Path(song['file_path'])
-            if file_path.exists():
-                return song
-    
+        for song in db.find_song(artist=artist, title=title):
+            matched = _match(song)
+            if matched:
+                return matched
+
     return None
 
 
@@ -1608,7 +1748,8 @@ def check_audio_volume(file_path: str) -> Tuple[Optional[float], Optional[str]]:
 
     Returns:
         (volumen_lufs, error): Volumen en LUFS o None si hay error; mensaje de error si falló.
-        Valores típicos: -23.0 LUFS (estándar EBU R128), más bajo = más silencioso
+        Referencia DJ: la biblioteca vive entre -7 y -9 LUFS; por debajo de -11 conviene
+        normalizar y por debajo de -14 se nota en DJUCED. Más bajo = más silencioso.
     """
     def _last_lines(txt: str, n: int = 5) -> str:
         lines = [l.strip() for l in (txt or '').splitlines() if l.strip()]
@@ -1753,14 +1894,14 @@ def generate_waveform_data(file_path: str, num_points: int = 120) -> Optional[li
         return None
 
 
-def normalize_audio_volume(file_path: str, target_lufs: float = -23.0) -> bool:
+def normalize_audio_volume(file_path: str, target_lufs: float = DJ_TARGET_LUFS) -> bool:
     """
     Normaliza el volumen del archivo de audio usando ffmpeg loudnorm.
-    
+
     Args:
         file_path: Ruta al archivo MP3
-        target_lufs: Nivel objetivo en LUFS (estándar EBU R128: -23.0)
-    
+        target_lufs: Nivel objetivo en LUFS (escala DJ: -9.0, no el -23.0 de broadcast)
+
     Returns:
         True si se normalizó correctamente, False en caso contrario
     """
@@ -1779,7 +1920,7 @@ def normalize_audio_volume(file_path: str, target_lufs: float = -23.0) -> bool:
         cmd = [
             'ffmpeg',
             '-i', file_path,
-            '-af', f'loudnorm=I={target_lufs}:TP=-2.0:LRA=7.0',
+            '-af', f'loudnorm=I={target_lufs}:TP={DJ_TARGET_TRUE_PEAK}:LRA=7.0',
             '-ar', '44100',  # Mantener sample rate
             '-b:a', '320k',  # Mantener bitrate
             '-y',  # Sobrescribir si existe
@@ -1900,15 +2041,15 @@ def apply_volume_offset(file_path: str, offset_db: float) -> Tuple[bool, Optiona
         return False, f'Excepción aplicando volumen: {e}'
 
 
-def check_and_normalize_audio(file_path: str, threshold_lufs: float = -26.0) -> bool:
+def check_and_normalize_audio(file_path: str, threshold_lufs: float = DJ_LOW_VOLUME_LUFS) -> bool:
     """
     Verifica el volumen del archivo y lo normaliza si está por debajo del umbral.
     No se usa en la descarga: NORMALIZE_VOLUME_ON_DOWNLOAD = False (el audio se guarda sin normalizar).
-    
+
     Args:
         file_path: Ruta al archivo MP3
         threshold_lufs: Umbral en LUFS. Si el volumen está por debajo de este valor,
-                       se normalizará. Por defecto -26.0 (más silencioso que el estándar -23.0)
+                       se normalizará. Por defecto -11.0 (escala DJ; el objetivo es -9.0)
     
     Returns:
         True si se normalizó o no era necesario, False si hubo error
@@ -2440,10 +2581,13 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
             if filtered_count > 0:
                 print(f"[{time.strftime('%H:%M:%S')}] ⚠️  Se omitieron {filtered_count} video(s) que no pudieron procesarse")
             
-            # Si no obtuvimos suficientes entradas, intentar sin extract_flat como fallback
-            # (aunque esto puede ser más lento y tener problemas con algunos videos)
-            if len(entries) < limit:
-                print(f"⚠️  Solo se obtuvieron {len(entries)} entradas de {limit} solicitadas. Intentando sin extract_flat...")
+            # Fallback sin extract_flat: SÓLO si no obtuvimos ninguna entrada.
+            # Sin extract_flat, yt-dlp resuelve cada vídeo por separado (minutos para
+            # un lote grande), y antes se lanzaba también cuando simplemente pedíamos
+            # más canciones de las que tiene la playlist: en ese caso el reintento no
+            # puede devolver más entradas, sólo hacer esperar.
+            if not entries:
+                print(f"⚠️  extract_flat no devolvió entradas ({len(entries)} de {limit} solicitadas). Intentando sin extract_flat...")
                 ydl_opts_full = {
                     'quiet': True,
                     'no_warnings': True,
@@ -2499,15 +2643,31 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
                     if not video_id:
                         continue
                     
-                    title = entry.get('title', 'Unknown')
+                    title = entry.get('title') or 'Unknown'
                     url = f"https://www.youtube.com/watch?v={video_id}"
-                    
+
+                    # El artista ya viene en la entrada plana (gratis, sin otra
+                    # petición). YouTube Music usa canales "<Artista> - Topic"
+                    # para los artistas autogenerados: quitamos ese sufijo.
+                    artists = entry.get('artists')
+                    if isinstance(artists, (list, tuple)):
+                        artist = ', '.join(str(a) for a in artists if a) or None
+                    else:
+                        artist = artists or None
+                    if not artist:
+                        artist = entry.get('artist') or entry.get('creator') or \
+                                 entry.get('channel') or entry.get('uploader')
+                    if artist:
+                        artist = re.sub(r'\s*-\s*Topic$', '', str(artist)).strip() or None
+
                     videos.append({
                         'id': video_id,
                         'title': title,
-                        'url': url
+                        'url': url,
+                        'artist': artist,
+                        'duration': entry.get('duration')
                     })
-            
+
             total_elapsed = time.time() - start_time
             print(f"[{time.strftime('%H:%M:%S')}] ✓ Se procesaron {len(videos)} videos (solicitados: {limit}, desde índice {start_index}) en {total_elapsed:.2f}s")
             return videos
@@ -2605,7 +2765,7 @@ def get_liked_videos(limit: int = 10) -> list:
                     if not video_id:
                         continue
                     
-                    title = entry.get('title', 'Unknown')
+                    title = entry.get('title') or 'Unknown'
                     # Construir URL completa
                     url = f"https://www.youtube.com/watch?v={video_id}"
                     
@@ -2930,7 +3090,16 @@ def register_song_in_db(video_id: str, url: str, file_path: Path, metadata: Dict
     
     # Obtener thumbnail
     thumbnail_url = video_info.get('thumbnail')
-    
+
+    # Si no hay thumbnail de YouTube, comprobar si el MP3 tiene portada embebida (APIC tag)
+    if not thumbnail_url and file_path.exists():
+        try:
+            _audio = MP3(str(file_path), ID3=ID3)
+            if any(k.startswith('APIC') for k in _audio.keys()):
+                thumbnail_url = f'/api/database/song/{video_id}/cover'
+        except Exception:
+            pass
+
     # Obtener descripción
     description = video_info.get('description', '')
     if len(description) > 1000:  # Limitar tamaño
@@ -3173,6 +3342,31 @@ def redownload_full(video_id: str, progress_callback=None) -> Tuple[bool, Option
         return False, str(e)
 
 
+def sanitize_tag_text(text: Optional[str]) -> Optional[str]:
+    """
+    Normaliza a NFC y repara la doble codificación UTF-8/Latin-1 (mojibake).
+
+    Escritores externos (yt-dlp/ffmpeg antiguos, otras apps de DJ) guardan a veces
+    bytes UTF-8 en frames declarados como Latin-1. Al leerlos con mutagen salen como
+    'CanciÃ³n' y, si se reescriben tal cual, la corrupción queda grabada para siempre
+    (y se acumula una vuelta más en cada pasada). Sanear aquí cura en vez de perpetuar.
+    """
+    if not text:
+        return text
+
+    import unicodedata
+    result = unicodedata.normalize('NFC', str(text))
+    for _ in range(3):  # hasta 3 vueltas para corrupción acumulada
+        try:
+            candidate = result.encode('latin-1').decode('utf-8')
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            break
+        if candidate == result:
+            break
+        result = candidate
+    return result
+
+
 def add_id3_tags(file_path: str, metadata: Dict, video_info: Dict):
     """
     Añade tags ID3 al archivo MP3.
@@ -3183,13 +3377,22 @@ def add_id3_tags(file_path: str, metadata: Dict, video_info: Dict):
         audio = MP3(file_path)
         audio.add_tags()
     
-    # Añadir tags básicos
+    # Guardar YouTube ID en campo TXXX personalizado
+    youtube_id = video_info.get('id', '')
+    if youtube_id:
+        audio['TXXX:YouTube ID'] = TXXX(encoding=3, desc='YouTube ID', text=youtube_id)
+
+    # Añadir tags básicos (siempre saneados: NFC + reparación de mojibake)
     if metadata.get('title'):
-        audio['TIT2'] = TIT2(encoding=3, text=metadata['title'])
-    
+        title_text = sanitize_tag_text(metadata['title'])
+        # Limpiar el YouTube ID del título si aparece como [ID] (11 chars alfanuméricos)
+        if youtube_id:
+            title_text = re.sub(r'\s*\[' + re.escape(youtube_id) + r'\]\s*', ' ', title_text).strip()
+        audio['TIT2'] = TIT2(encoding=3, text=title_text)
+
     if metadata.get('artist'):
-        audio['TPE1'] = TPE1(encoding=3, text=metadata['artist'])
-    
+        audio['TPE1'] = TPE1(encoding=3, text=sanitize_tag_text(metadata['artist']))
+
     if metadata.get('year'):
         audio['TDRC'] = TDRC(encoding=3, text=metadata['year'])
     
@@ -3207,27 +3410,45 @@ def add_id3_tags(file_path: str, metadata: Dict, video_info: Dict):
         genre_text = genre_text.replace('\x00', '').strip()
         # Escribir el género correctamente (UTF-8 encoding)
         if genre_text:  # Solo escribir si el género no está vacío después de limpiar
-            audio['TCON'] = TCON(encoding=3, text=genre_text)
-    
+            audio['TCON'] = TCON(encoding=3, text=sanitize_tag_text(genre_text))
+
     # Añadir álbum si está disponible
     if video_info.get('uploader'):
-        audio['TALB'] = TALB(encoding=3, text=f"YouTube - {video_info.get('uploader', 'Unknown')}")
+        uploader = sanitize_tag_text(video_info.get('uploader')) or 'Unknown'
+        audio['TALB'] = TALB(encoding=3, text=f"YouTube - {uploader}")
     
-    # Intentar añadir thumbnail como portada
+    # Intentar añadir thumbnail como portada (siempre como JPEG para compatibilidad con DJUCED)
     if video_info.get('thumbnail'):
         try:
             import urllib.request
+            import io
             with urllib.request.urlopen(video_info['thumbnail']) as response:
                 image_data = response.read()
-                audio['APIC'] = APIC(
-                    encoding=3,
-                    mime='image/jpeg',
-                    type=3,  # Cover (front)
-                    desc='Cover',
-                    data=image_data
-                )
-        except:
-            pass  # Si falla, continuar sin portada
+
+            # Convertir a JPEG: YouTube sirve WebP y DJUCED no lo muestra.
+            # Si Pillow no está disponible se embebe el original antes que perder la portada.
+            mime = 'image/jpeg'
+            try:
+                from PIL import Image
+                img = Image.open(io.BytesIO(image_data)).convert('RGB')
+                buf = io.BytesIO()
+                img.save(buf, format='JPEG', quality=90)
+                image_data = buf.getvalue()
+            except ImportError:
+                print("⚠️  Pillow no instalado: portada embebida sin convertir a JPEG "
+                      "(puede no verse en DJUCED). Instala con: pip install Pillow")
+                if image_data[:4] == b'RIFF':
+                    mime = 'image/webp'
+
+            audio['APIC'] = APIC(
+                encoding=3,
+                mime=mime,
+                type=3,  # Cover (front)
+                desc='Cover',
+                data=image_data
+            )
+        except Exception as e:
+            print(f"⚠️  No se pudo embeber la portada: {type(e).__name__}: {e}")
     
     audio.save()
 
@@ -3243,27 +3464,25 @@ def read_id3_tags(file_path: str) -> Dict[str, Optional[str]]:
         'title': None,
         'artist': None,
         'year': None,
-        'genre': None
+        'genre': None,
+        'youtube_id': None,
     }
     
     try:
         audio = MP3(file_path, ID3=ID3)
         
-        # Leer título (TIT2)
+        # Leer título (TIT2) — saneado para no arrastrar mojibake heredado
         if 'TIT2' in audio:
-            metadata['title'] = str(audio['TIT2'][0])
-        
+            metadata['title'] = sanitize_tag_text(str(audio['TIT2'][0]))
+
         # Leer artista (TPE1)
         if 'TPE1' in audio:
-            metadata['artist'] = str(audio['TPE1'][0])
-        
-        # Leer año (TDRC)
+            metadata['artist'] = sanitize_tag_text(str(audio['TPE1'][0]))
+
+        # Leer año (TDRC). Se valida para no propagar un año corrupto ya escrito
+        # en el tag hacia la carpeta de década.
         if 'TDRC' in audio:
-            year_str = str(audio['TDRC'][0])
-            # Extraer año si es una fecha completa
-            year_match = re.search(r'(\d{4})', year_str)
-            if year_match:
-                metadata['year'] = year_match.group(1)
+            metadata['year'] = parse_year(str(audio['TDRC'][0]))
         
         # Leer género (TCON)
         if 'TCON' in audio:
@@ -3271,8 +3490,12 @@ def read_id3_tags(file_path: str) -> Dict[str, Optional[str]]:
             # Limpiar el género si viene con formato estándar como "(17)House"
             if genre_text.startswith('(') and ')' in genre_text:
                 genre_text = genre_text.split(')', 1)[1].strip()
-            metadata['genre'] = genre_text.strip()
-    
+            metadata['genre'] = sanitize_tag_text(genre_text.strip())
+
+        # Leer YouTube ID (TXXX:YouTube ID)
+        if 'TXXX:YouTube ID' in audio:
+            metadata['youtube_id'] = str(audio['TXXX:YouTube ID'].text[0])
+
     except Exception:
         # Si no hay tags ID3 o hay error, devolver diccionario vacío
         pass
@@ -3472,15 +3695,26 @@ def process_imported_mp3(file_path: Path, base_folder: str,
                         add_id3_tags(str(new_file_path), metadata, video_info or {})
                 return None
             
-            # Copiar el archivo a la nueva ubicación
+            # Mover o copiar el archivo a la nueva ubicación
             # Si ya existe un archivo con ese nombre, añadir número
             counter = 1
             original_new_path = new_file_path
             while new_file_path.exists():
                 new_file_path = output_folder / f"{filename} ({counter}).mp3"
                 counter += 1
-            
-            shutil.copy2(str(file_path), str(new_file_path))
+
+            # Si el archivo ya estaba en la biblioteca hay que MOVERLO: copiarlo
+            # dejaría el original en su carpeta anterior (normalmente
+            # 'Sin Clasificar') y la canción saldría dos veces en DJUCED, que
+            # escanea el disco y no la BD. Lo importado de fuera sí se copia.
+            if is_inside_library(file_path, base_folder):
+                shutil.move(str(file_path), str(new_file_path))
+                if log_callback:
+                    src = f"{file_path.parent.parent.name}/{file_path.parent.name}"
+                    dst = f"{output_folder.parent.name}/{output_folder.name}"
+                    log_callback(f"   ↪️  Movido de {src} a {dst}")
+            else:
+                shutil.copy2(str(file_path), str(new_file_path))
             
             # Si no se detectó género o es genérico, intentar con Essentia
             if (not metadata.get('genre') or 
@@ -3521,16 +3755,15 @@ def process_imported_mp3(file_path: Path, base_folder: str,
         existing_song = check_file_exists(
             video_id=video_id,
             artist=metadata.get('artist'),
-            title=metadata.get('title')
+            title=metadata.get('title'),
+            base_folder=base_folder
         )
-        
+
         if not existing_song:
             # Registrar en base de datos
-            # Si no hay video_id, generar uno temporal o usar None
+            # Si no hay video_id, generar uno determinista a partir de la ruta
             if not video_id:
-                # Usar hash absoluto para evitar números negativos
-                file_hash = abs(hash(str(final_file_path)))
-                video_id = f"imported_{file_hash}"
+                video_id = stable_imported_video_id(final_file_path, base_folder)
             
             # Crear video_info mínimo si no existe
             if not video_info:

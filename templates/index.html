@@ -10,7 +10,14 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
+        /* El atributo HTML `hidden` debe ocultar siempre el elemento, incluso si
+           una clase define display:flex/grid/etc. (esa regla tendría la misma
+           especificidad que [hidden] del user-agent y ganaría por orden). */
+        [hidden] {
+            display: none !important;
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -288,6 +295,84 @@
             vertical-align: middle;
         }
 
+        /* Spinner de actividad en el tab (cuando hay tarea en curso) */
+        .floating-log-tab .tab-spinner {
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.25);
+            border-top-color: #aef;
+            animation: tab-spin 0.75s linear infinite;
+            margin-left: 5px;
+            vertical-align: middle;
+        }
+        @keyframes tab-spin { to { transform: rotate(360deg); } }
+
+        /* Cards de progreso de descarga */
+        #dl-cards-area {
+            padding: 6px 8px 2px;
+        }
+        #dl-cards-area:empty { display: none; }
+        .dl-card {
+            background: #1e2030;
+            border: 1px solid #2e3050;
+            border-radius: 6px;
+            padding: 7px 10px;
+            margin-bottom: 5px;
+            transition: border-color 0.3s, opacity 0.5s;
+        }
+        .dl-card.dl-done  { border-color: #1d4731; }
+        .dl-card.dl-error { border-color: #4a1a1a; }
+        .dl-card.dl-fading { opacity: 0; }
+        .dl-card-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 4px;
+        }
+        .dl-card-title {
+            flex: 1;
+            font-size: 11px;
+            color: #ccc;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .dl-card-pct {
+            font-size: 11px;
+            color: #aaa;
+            font-family: monospace;
+            min-width: 34px;
+            text-align: right;
+        }
+        .dl-card.dl-done  .dl-card-pct { color: #4caf50; }
+        .dl-card.dl-error .dl-card-pct { color: #f44336; }
+        .dl-bar-wrap {
+            height: 4px;
+            background: #2a2a3a;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 3px;
+        }
+        .dl-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 2px;
+            transition: width 0.4s ease;
+            width: 0%;
+        }
+        .dl-card.dl-done  .dl-bar-fill { background: #28a745; width: 100% !important; }
+        .dl-card.dl-error .dl-bar-fill { background: #dc3545; }
+        .dl-card-meta {
+            font-size: 10px;
+            color: #555;
+            font-family: monospace;
+        }
+        /* Área de texto dentro de cada log-section */
+        .log-text { white-space: pre-wrap; }
+
         .floating-log-body {
             flex: 1;
             min-height: 0;
@@ -476,6 +561,9 @@
             color: white;
             font-weight: bold;
             cursor: pointer;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
             user-select: none;
             position: relative;
             padding-right: 25px;
@@ -585,6 +673,14 @@
             padding: 2px 6px;
             border-radius: 4px;
             font-size: 0.9em;
+        }
+        .volume-badge.very-low {
+            background: #f8d7da;
+            color: #842029;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-weight: 600;
         }
         .volume-unknown {
             color: #999;
@@ -918,12 +1014,12 @@
             right: 12px;
             top: 50%;
             transform: translateY(-50%);
-            width: 16px;
-            height: 16px;
-            border: 2px solid #e9ecef;
+            width: 18px;
+            height: 18px;
+            border: 2.5px solid #d0d5e8;
             border-top-color: #667eea;
             border-radius: 50%;
-            animation: yt-spin 0.8s linear infinite;
+            animation: yt-spin 0.7s linear infinite;
             display: none;
             pointer-events: none;
         }
@@ -934,6 +1030,29 @@
 
         @keyframes yt-spin {
             to { transform: translateY(-50%) rotate(360deg); }
+        }
+
+        .yt-search-loading {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .yt-search-loading-dot {
+            width: 20px;
+            height: 20px;
+            border: 2.5px solid #d0d5e8;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: yt-spin-inline 0.7s linear infinite;
+            flex-shrink: 0;
+        }
+
+        @keyframes yt-spin-inline {
+            to { transform: rotate(360deg); }
         }
 
         .yt-search-results {
@@ -1270,6 +1389,652 @@
                 bottom: 12px;
             }
         }
+
+        /* ============================================================
+           Clases utilitarias (estilos antes inline)
+           ============================================================ */
+
+        /* Banner ffmpeg */
+        .ffmpeg-banner {
+            background: #fff3cd;
+            border-bottom: 3px solid #ffc107;
+            padding: 16px 24px;
+        }
+        .ffmpeg-banner-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        .ffmpeg-banner-icon {
+            font-size: 2em;
+            line-height: 1;
+        }
+        .ffmpeg-banner-content {
+            flex: 1;
+            min-width: 220px;
+        }
+        .ffmpeg-banner-title {
+            font-size: 1.1em;
+            color: #856404;
+        }
+        .ffmpeg-banner-text {
+            margin: 6px 0 0;
+            color: #533f03;
+        }
+        .ffmpeg-banner-install-block {
+            margin-top: 10px;
+        }
+        .ffmpeg-banner-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 200px;
+        }
+        .btn-link {
+            text-align: center;
+            text-decoration: none;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .ffmpeg-install-status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+
+        /* Barra de selección de DB */
+        .db-limit-label { min-width: auto; }
+        .db-limit-select { flex: none; min-width: 100px; }
+        .db-selection-bar-style {
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            background: #e8eaf6;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        /* Paneles informativos (config) */
+        .info-panel {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e8f4fd;
+            border-radius: 10px;
+        }
+        .info-panel-success {
+            margin-top: 20px;
+            padding: 15px;
+            background: #d4edda;
+            border-radius: 10px;
+        }
+        .info-panel-danger {
+            margin-top: 20px;
+            padding: 20px;
+            background: #fff3cd;
+            border-radius: 10px;
+        }
+
+        /* ffmpeg sección de Configuración */
+        .config-ffmpeg-install-area {
+            margin-top: 12px;
+            padding: 12px;
+            background: #fff3cd;
+            border-radius: 8px;
+            border: 1px solid #ffc107;
+        }
+        .config-ffmpeg-warning {
+            margin: 0 0 8px;
+            color: #856404;
+        }
+        .config-ffmpeg-cmd {
+            font-family: monospace;
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 8px 0;
+            word-break: break-all;
+        }
+        .config-ffmpeg-note,
+        .config-ffmpeg-path {
+            font-size: 0.85em;
+            color: #555;
+            margin: 4px 0;
+        }
+        .config-ffmpeg-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        .config-ffmpeg-install-status {
+            margin-top: 8px;
+            font-weight: bold;
+        }
+
+        /* Textos y párrafos comunes */
+        .text-muted-sm {
+            margin: 8px 0;
+            font-size: 0.9em;
+            color: #555;
+        }
+        .text-muted-xs {
+            margin: 8px 0;
+            font-size: 0.85em;
+            color: #555;
+        }
+        .text-note-warning {
+            margin: 8px 0;
+            font-size: 0.85em;
+            color: #856404;
+            background: #fff3cd;
+            padding: 8px;
+            border-radius: 6px;
+        }
+        .paragraph-md { margin: 10px 0; }
+        .paragraph-sm { margin: 8px 0; }
+        .paragraph-help {
+            margin: 5px 0;
+            font-size: 0.9em;
+            color: #555;
+        }
+        .ml-10 { margin-left: 10px; }
+        .mt-10 { margin-top: 10px; }
+        .mt-15 { margin-top: 15px; }
+        .cookies-browser-select { min-width: 200px; }
+
+        /* Sección About */
+        .about-container {
+            text-align: center;
+            padding: 40px;
+        }
+        .about-title {
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+        .about-subtitle {
+            font-size: 1.2em;
+            margin-bottom: 30px;
+        }
+        .about-separator { margin: 30px 0; }
+        .about-info { margin: 20px 0; }
+
+        /* File browser */
+        .file-list-loading {
+            padding: 20px;
+            text-align: center;
+            color: #666;
+        }
+
+        /* ============================================================
+           Modo Radio
+           ============================================================ */
+        .radio-stage {
+            max-width: 1180px;
+            margin: 30px auto;
+            padding: 30px;
+            background: linear-gradient(135deg, #1e1e2f 0%, #2d2d44 100%);
+            color: #fff;
+            border-radius: 18px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.25);
+            text-align: center;
+        }
+        .radio-stage-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+            gap: 28px;
+            align-items: flex-start;
+            margin-top: 8px;
+        }
+        .radio-player-col {
+            text-align: center;
+            min-width: 0;
+        }
+        .radio-info-col {
+            text-align: left;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 14px;
+            padding: 20px;
+            min-width: 0;
+        }
+        .radio-info-empty {
+            text-align: center;
+            color: #9999bb;
+            padding: 40px 10px;
+        }
+        .radio-info-empty-icon {
+            font-size: 3em;
+            opacity: 0.6;
+            margin-bottom: 10px;
+        }
+        .radio-albumart-wrap {
+            width: 100%;
+            max-width: 280px;
+            aspect-ratio: 1 / 1;
+            margin: 0 auto 16px;
+            background: linear-gradient(135deg, #1e1e2f, #2d2d44);
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 22px rgba(0,0,0,0.35);
+            position: relative;
+        }
+        .radio-albumart-wrap img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .radio-albumart-wrap .placeholder {
+            font-size: 5em;
+            color: rgba(255,255,255,0.35);
+        }
+        .radio-info-header {
+            text-align: center;
+            margin-bottom: 14px;
+        }
+        .radio-info-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #fff;
+            word-break: break-word;
+        }
+        .radio-info-artist {
+            color: #c7c7e2;
+            margin-top: 2px;
+        }
+        .radio-waveform-wrap {
+            position: relative;
+            width: 100%;
+            height: 80px;
+            margin: 0 0 16px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .radio-waveform-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .radio-waveform-empty {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            color: #9999bb;
+            font-size: 0.9em;
+        }
+        .radio-waveform-empty .btn-waveform-generate {
+            padding: 4px 10px;
+            border-radius: 14px;
+            font-size: 0.85em;
+            background: #667eea;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+        }
+        .radio-waveform-empty .btn-waveform-generate:hover:not(:disabled) {
+            background: #7d92f0;
+        }
+        .radio-waveform-empty .btn-waveform-generate:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .radio-info-meta {
+            display: grid;
+            grid-template-columns: max-content minmax(0, 1fr);
+            gap: 8px 14px;
+            font-size: 0.92em;
+            margin: 0;
+        }
+        .radio-info-meta dt {
+            color: #9999bb;
+            text-transform: uppercase;
+            font-size: 0.74em;
+            letter-spacing: 0.07em;
+            align-self: center;
+            font-weight: 600;
+        }
+        .radio-info-meta dd {
+            color: #e6e6f7;
+            margin: 0;
+            word-break: break-word;
+            font-variant-numeric: tabular-nums;
+        }
+        .radio-info-meta dd.path {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+            color: #b8b8d6;
+        }
+        .radio-progress-wrap {
+            margin: 14px 4px 16px;
+        }
+        .radio-progress-bar {
+            position: relative;
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.12);
+            border-radius: 999px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        .radio-progress-bar:hover { height: 10px; }
+        .radio-progress-buffer {
+            position: absolute;
+            top: 0; left: 0; bottom: 0;
+            width: 0%;
+            background: rgba(255,255,255,0.18);
+        }
+        .radio-progress-fill {
+            position: absolute;
+            top: 0; left: 0; bottom: 0;
+            width: 0%;
+            background: linear-gradient(90deg, #667eea, #f093fb);
+            transition: width 0.15s linear;
+        }
+        .radio-progress-times {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+            color: #b8b8d6;
+            margin-top: 6px;
+            font-variant-numeric: tabular-nums;
+        }
+        @media (max-width: 900px) {
+            .radio-stage-grid {
+                grid-template-columns: 1fr;
+            }
+            .radio-info-col { text-align: left; }
+        }
+
+        /* ---------- Buscador del modo Radio ---------- */
+        .radio-search-bar {
+            position: relative;
+            max-width: 700px;
+            margin: 0 auto 14px;
+            text-align: left;
+        }
+        .radio-search-input-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .radio-search-icon {
+            position: absolute;
+            left: 14px;
+            color: rgba(255,255,255,0.5);
+            pointer-events: none;
+            font-size: 1em;
+        }
+        .radio-search-input {
+            width: 100%;
+            padding: 12px 40px 12px 38px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.18);
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            font-size: 1em;
+            outline: none;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .radio-search-input::placeholder { color: rgba(255,255,255,0.4); }
+        .radio-search-input:focus {
+            border-color: #667eea;
+            background: rgba(255,255,255,0.12);
+        }
+        .radio-search-clear {
+            position: absolute;
+            right: 10px;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            border: none;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .radio-search-clear:hover { background: rgba(255,255,255,0.22); }
+        .radio-search-hint {
+            font-size: 0.78em;
+            color: rgba(255,255,255,0.5);
+            margin: 6px 8px 0;
+            min-height: 1em;
+        }
+        .radio-search-results {
+            margin-top: 8px;
+            background: rgba(20, 20, 35, 0.95);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            overflow: hidden;
+            max-height: 380px;
+            overflow-y: auto;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+        }
+        .radio-search-result {
+            display: grid;
+            grid-template-columns: 48px minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            transition: background 0.12s;
+        }
+        .radio-search-result:last-child { border-bottom: none; }
+        .radio-search-result:hover,
+        .radio-search-result.active { background: rgba(102, 126, 234, 0.18); }
+        .radio-search-result .rsr-art {
+            width: 48px;
+            height: 48px;
+            border-radius: 6px;
+            background: linear-gradient(135deg, #2a2a40, #1c1c2e);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255,255,255,0.4);
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .radio-search-result .rsr-art img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .radio-search-result .rsr-text { min-width: 0; }
+        .radio-search-result .rsr-title {
+            color: #fff;
+            font-weight: 600;
+            font-size: 0.95em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .radio-search-result .rsr-meta {
+            color: #9999bb;
+            font-size: 0.82em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px;
+        }
+        .radio-search-result .rsr-actions {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .radio-search-result .rsr-btn {
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-size: 0.82em;
+            font-weight: 600;
+            white-space: nowrap;
+            transition: background 0.15s, transform 0.08s;
+        }
+        .radio-search-result .rsr-btn:hover { background: rgba(255,255,255,0.2); }
+        .radio-search-result .rsr-btn:active { transform: scale(0.96); }
+        .radio-search-result .rsr-btn.primary { background: #667eea; }
+        .radio-search-result .rsr-btn.primary:hover { background: #7d92f0; }
+        .radio-search-empty {
+            padding: 20px;
+            text-align: center;
+            color: #9999bb;
+            font-size: 0.9em;
+        }
+        @media (max-width: 600px) {
+            .radio-search-result {
+                grid-template-columns: 40px minmax(0, 1fr);
+            }
+            .radio-search-result .rsr-art { width: 40px; height: 40px; }
+            .radio-search-result .rsr-actions { grid-column: 1 / -1; justify-content: flex-end; margin-top: 4px; }
+        }
+        .radio-stage .radio-status {
+            font-size: 0.95em;
+            color: #b8b8d6;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            margin-bottom: 18px;
+        }
+        .radio-stage .radio-status.playing { color: #4ade80; }
+        .radio-stage .radio-status.error { color: #f87171; }
+        .radio-disc {
+            width: 180px;
+            height: 180px;
+            margin: 0 auto 22px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #667eea, #2d2d44 70%);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.6), 0 6px 20px rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 4em;
+            position: relative;
+        }
+        .radio-disc::after {
+            content: '';
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: #1e1e2f;
+            border-radius: 50%;
+            border: 4px solid #444;
+        }
+        .radio-disc.spinning {
+            animation: radio-spin 4s linear infinite;
+        }
+        @keyframes radio-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .radio-title {
+            font-size: 1.6em;
+            font-weight: bold;
+            margin-bottom: 6px;
+            min-height: 1.2em;
+            word-break: break-word;
+        }
+        .radio-artist {
+            font-size: 1.1em;
+            color: #c7c7e2;
+            margin-bottom: 4px;
+            min-height: 1em;
+        }
+        .radio-meta {
+            font-size: 0.9em;
+            color: #9999bb;
+            margin-bottom: 22px;
+            min-height: 1em;
+        }
+        .radio-controls {
+            display: flex;
+            justify-content: center;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+        .radio-btn {
+            background: rgba(255,255,255,0.12);
+            color: #fff;
+            border: none;
+            padding: 14px 22px;
+            border-radius: 50px;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: bold;
+            transition: background 0.2s, transform 0.1s;
+            min-width: 110px;
+        }
+        .radio-btn:hover:not(:disabled) {
+            background: rgba(255,255,255,0.22);
+        }
+        .radio-btn:active:not(:disabled) {
+            transform: scale(0.96);
+        }
+        .radio-btn.primary {
+            background: #667eea;
+        }
+        .radio-btn.primary:hover:not(:disabled) {
+            background: #7d92f0;
+        }
+        .radio-btn.danger {
+            background: rgba(220, 53, 69, 0.85);
+        }
+        .radio-btn.danger:hover:not(:disabled) {
+            background: rgba(220, 53, 69, 1);
+        }
+        .radio-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .radio-audio {
+            width: 100%;
+            margin-top: 10px;
+            border-radius: 8px;
+        }
+        .radio-genre-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+        .radio-genre-bar label {
+            color: #c7c7e2;
+            font-weight: bold;
+        }
+        .radio-genre-bar select {
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            font-size: 1em;
+            min-width: 220px;
+        }
+        .radio-genre-bar select option {
+            background: #1e1e2f;
+            color: #fff;
+        }
+        .radio-counter {
+            font-size: 0.85em;
+            color: #9999bb;
+            margin-top: 14px;
+        }
     </style>
 </head>
 <body>
@@ -1294,7 +2059,7 @@
             <button type="button" class="floating-log-tab" data-log-tab="config">⚙️ Config</button>
         </div>
         <div class="floating-log-body" id="floating-log-body">
-            <div class="log-section active" data-log-section="download"></div>
+            <div class="log-section active" data-log-section="download"><div id="dl-cards-area"></div></div>
             <div class="log-section" data-log-section="database"></div>
             <div class="log-section" data-log-section="playlist"></div>
             <div class="log-section" data-log-section="import"></div>
@@ -1330,9 +2095,9 @@
                 <button type="button" class="radio-ctrl" id="btn-radio-next" title="Siguiente canción">⏭</button>
             </div>
             <div class="radio-audio-row">
-                <audio id="radio-audio" preload="none"></audio>
+                <audio id="radio-mini-audio" preload="none"></audio>
             </div>
-            <div class="radio-status" id="radio-status"></div>
+            <div class="radio-status" id="radio-mini-status"></div>
         </div>
     </div>
 
@@ -1346,37 +2111,37 @@
         </div>
 
         <!-- Banner de alerta ffmpeg (oculto por defecto, se muestra si ffmpeg no está disponible) -->
-        <div id="ffmpeg-alert-banner" style="display:none; background:#fff3cd; border-bottom:3px solid #ffc107; padding:16px 24px;">
-            <div style="display:flex; align-items:flex-start; gap:14px; flex-wrap:wrap;">
-                <span style="font-size:2em; line-height:1;">⚠️</span>
-                <div style="flex:1; min-width:220px;">
-                    <strong style="font-size:1.1em; color:#856404;">ffmpeg no está instalado</strong>
-                    <p style="margin:6px 0 0; color:#533f03;">
+        <div id="ffmpeg-alert-banner" class="ffmpeg-banner" style="display:none;">
+            <div class="ffmpeg-banner-row">
+                <span class="ffmpeg-banner-icon">⚠️</span>
+                <div class="ffmpeg-banner-content">
+                    <strong class="ffmpeg-banner-title">ffmpeg no está instalado</strong>
+                    <p class="ffmpeg-banner-text">
                         ffmpeg es <strong>necesario</strong> para convertir el audio descargado a MP3.
                         Sin él, <strong>todas las descargas fallarán</strong>.
                     </p>
-                    <div id="ffmpeg-install-block" style="margin-top:10px;"></div>
+                    <div id="ffmpeg-install-block" class="ffmpeg-banner-install-block"></div>
                 </div>
-                <div style="display:flex; flex-direction:column; gap:8px; min-width:200px;">
+                <div class="ffmpeg-banner-actions">
                     <button id="ffmpeg-install-btn" class="btn btn-warning" onclick="installFfmpegWinget()" style="display:none;">
                         ⚡ Instalar automáticamente (winget)
                     </button>
-                    <a id="ffmpeg-download-link" href="https://www.gyan.dev/ffmpeg/builds/" target="_blank"
-                       class="btn btn-primary" style="text-align:center; text-decoration:none;">
+                    <a id="ffmpeg-download-link" href="https://www.gyan.dev/ffmpeg/builds/" target="_blank" rel="noopener noreferrer"
+                       class="btn btn-primary btn-link">
                         📥 Descargar ffmpeg manualmente
                     </a>
-                    <button class="btn" onclick="document.getElementById('ffmpeg-alert-banner').style.display='none'"
-                            style="background:#6c757d; color:white;">
+                    <button class="btn btn-secondary" onclick="document.getElementById('ffmpeg-alert-banner').style.display='none'">
                         Ocultar aviso
                     </button>
                 </div>
             </div>
-            <div id="ffmpeg-install-status" style="margin-top:10px; font-weight:bold;"></div>
+            <div id="ffmpeg-install-status" class="ffmpeg-install-status"></div>
         </div>
 
         <div class="tabs">
             <button class="tab active" onclick="showTab('download')">📥 Descargar</button>
             <button class="tab" onclick="showTab('database')">💾 Base de Datos</button>
+            <button class="tab" onclick="showTab('radio')">📻 Radio</button>
             <button class="tab" onclick="showTab('playlist')">🎵 Playlist Youtube</button>
             <button class="tab" onclick="showTab('import')">📁 Importar Carpeta</button>
             <button class="tab" onclick="showTab('testing')">🧪 Testing</button>
@@ -1414,8 +2179,8 @@
                 <div class="control-group">
                     <label>🔍 Buscar:</label>
                     <input type="text" id="db-search" placeholder="Buscar en todas las columnas..." onkeyup="searchDatabase()">
-                    <label for="db-limit" style="min-width: auto;">Límite:</label>
-                    <select id="db-limit" onchange="loadDatabase()" style="flex: none; min-width: 100px;">
+                    <label for="db-limit" class="db-limit-label">Límite:</label>
+                    <select id="db-limit" onchange="loadDatabase()" class="db-limit-select">
                         <option value="100">100</option>
                         <option value="500">500</option>
                         <option value="1000">1000</option>
@@ -1425,6 +2190,7 @@
                     <button class="btn btn-primary" onclick="showStatistics()">📊 Estadísticas</button>
                     <button class="btn btn-primary" onclick="searchDuplicates()" title="Buscar canciones con mismo título y artista">🔍 Buscar duplicados</button>
                     <button class="btn btn-primary" id="btn-generate-missing-waveforms" onclick="generateMissingWaveforms()" title="Generar forma de onda para canciones que aún no la tienen">〰️ Generar waveforms faltantes</button>
+                    <button class="btn btn-primary" id="btn-fetch-missing-albumart" onclick="fetchMissingAlbumArt()" title="Buscar y rellenar album art para canciones que no lo tienen (YouTube primero, luego búsqueda online)">🖼️ Album art faltante</button>
                 </div>
                 <div class="control-group">
                     <label>
@@ -1432,18 +2198,95 @@
                     </label>
                 </div>
                 <div id="db-filters-bar" class="db-filters-bar" style="display: none;"></div>
-                <div id="database-selection-bar" class="control-group" style="display: none; align-items: center; gap: 12px; padding: 10px; background: #e8eaf6; border-radius: 8px; margin-bottom: 10px;">
+                <div id="database-selection-bar" class="control-group db-selection-bar-style" style="display: none;">
                     <span id="database-selection-count">0 seleccionadas</span>
                     <button type="button" class="btn btn-primary" onclick="measureVolumeSelected()">📊 Recalcular volumen</button>
                     <button type="button" class="btn btn-primary" onclick="redownloadFullSelected()">🔄 Volver a descargar (proceso completo)</button>
                     <button type="button" class="btn btn-danger" onclick="deleteSelectedSongs()">🗑️ Eliminar seleccionadas</button>
-                    <button type="button" class="btn" onclick="clearDatabaseSelection()" style="background: #6c757d; color: white;">✕ Quitar selección</button>
+                    <button type="button" class="btn btn-secondary" onclick="clearDatabaseSelection()">✕ Quitar selección</button>
                 </div>
                 <div id="database-results"></div>
             </div>
             <div class="log-container database-log-always-visible" id="database-log" title="Consola"></div>
         </div>
-        
+
+        <!-- Pestaña: Radio -->
+        <div id="radio" class="tab-content">
+            <h2>📻 Modo Radio</h2>
+            <p style="color:#666; margin-bottom: 10px;">
+                Reproduce canciones aleatorias de tu base de datos en bucle.
+                Cuando una canción termina, salta automáticamente a la siguiente.
+            </p>
+            <div class="radio-stage">
+                <div class="radio-search-bar">
+                    <div class="radio-search-input-wrap">
+                        <span class="radio-search-icon">🔎</span>
+                        <input type="text" id="radio-search-input" class="radio-search-input"
+                            placeholder="Buscar canción, artista o género…" autocomplete="off"
+                            oninput="onRadioSearchInput()" onkeydown="onRadioSearchKey(event)">
+                        <button type="button" class="radio-search-clear" id="radio-search-clear" onclick="clearRadioSearch()" hidden>✕</button>
+                    </div>
+                    <div class="radio-search-hint" id="radio-search-hint"></div>
+                    <div class="radio-search-results" id="radio-search-results" hidden></div>
+                </div>
+                <div class="radio-genre-bar">
+                    <label for="radio-genre-select">Género:</label>
+                    <select id="radio-genre-select" onchange="onRadioGenreChange()">
+                        <option value="">— Todos los géneros —</option>
+                    </select>
+                </div>
+                <div class="radio-stage-grid">
+                    <div class="radio-player-col">
+                        <div class="radio-status" id="radio-status">Pulsa ▶ Play para empezar</div>
+                        <div class="radio-disc" id="radio-disc">🎵</div>
+                        <div class="radio-title" id="radio-title">—</div>
+                        <div class="radio-artist" id="radio-artist">—</div>
+                        <div class="radio-meta" id="radio-meta"></div>
+                        <div class="radio-progress-wrap">
+                            <div class="radio-progress-bar" id="radio-progress-bar" title="Click para saltar">
+                                <div class="radio-progress-fill" id="radio-progress-fill"></div>
+                                <div class="radio-progress-buffer" id="radio-progress-buffer"></div>
+                            </div>
+                            <div class="radio-progress-times">
+                                <span id="radio-time-current">0:00</span>
+                                <span id="radio-time-total">0:00</span>
+                            </div>
+                        </div>
+                        <div class="radio-controls">
+                            <button class="radio-btn primary" id="radio-btn-play" onclick="radioTogglePlay()" disabled>▶ Play</button>
+                            <button class="radio-btn" id="radio-btn-next" onclick="radioPlayNext()" disabled>⏭ Siguiente</button>
+                            <button class="radio-btn danger" id="radio-btn-delete" onclick="radioDeleteCurrent()" title="Eliminar la canción actual de la base de datos y del disco" disabled>🗑️ Eliminar</button>
+                        </div>
+                        <audio id="radio-audio" class="radio-audio" controls preload="auto"></audio>
+                        <div class="radio-counter" id="radio-counter"></div>
+                    </div>
+                    <aside class="radio-info-col" id="radio-info-col">
+                        <div class="radio-info-empty" id="radio-info-empty">
+                            <div class="radio-info-empty-icon">🎵</div>
+                            <div>Carga una canción para ver toda su información</div>
+                        </div>
+                        <div class="radio-info-content" id="radio-info-content" hidden>
+                            <div class="radio-albumart-wrap" id="radio-albumart-wrap">
+                                <span class="placeholder">🎵</span>
+                            </div>
+                            <div class="radio-info-header">
+                                <div class="radio-info-title" id="radio-info-title">—</div>
+                                <div class="radio-info-artist" id="radio-info-artist">—</div>
+                            </div>
+                            <div class="radio-waveform-wrap" id="radio-waveform-wrap" title="Click para saltar a esa posición">
+                                <canvas id="radio-waveform" class="radio-waveform-canvas" width="640" height="80"></canvas>
+                                <div class="radio-waveform-empty" id="radio-waveform-empty" hidden>
+                                    <span>Sin waveform</span>
+                                    <button type="button" class="btn-waveform-generate" id="radio-waveform-gen">Generar</button>
+                                </div>
+                            </div>
+                            <dl class="radio-info-meta" id="radio-info-meta"></dl>
+                        </div>
+                    </aside>
+                </div>
+            </div>
+        </div>
+
         <!-- Pestaña: Playlist Youtube -->
         <div id="playlist" class="tab-content">
             <h2>🎵 Playlist Youtube</h2>
@@ -1461,7 +2304,7 @@
                 </label>
             </div>
             <div class="control-group">
-                <button class="btn btn-primary" onclick="loadPlaylist()">🔄 Cargar Playlist</button>
+                <button class="btn btn-primary" onclick="loadPlaylist({showConsole: true})">🔄 Cargar Playlist</button>
             </div>
             <div id="playlist-results"></div>
             <div class="log-container" id="playlist-log"></div>
@@ -1516,9 +2359,9 @@
                 <label>Last.fm API Key:</label>
                 <input type="text" id="config-lastfm-key" placeholder="API Key de Last.fm">
             </div>
-            <div style="margin-top: 20px; padding: 15px; background: #e8f4fd; border-radius: 10px;">
+            <div class="info-panel">
                 <h3>🏷️ Clasificación Essentia</h3>
-                <p style="margin: 10px 0;">Modelo usado para detectar el género por análisis de audio (al descargar o al usar "Volver a clasificar"):</p>
+                <p class="paragraph-md">Modelo usado para detectar el género por análisis de audio (al descargar o al usar "Volver a clasificar"):</p>
                 <div class="control-group">
                     <label>Modelo de clasificación:</label>
                     <select id="config-essentia-classifier">
@@ -1527,54 +2370,54 @@
                         <option value="legacy">Solo Legacy MusicNN</option>
                     </select>
                 </div>
-                <p style="margin: 5px 0; font-size: 0.9em; color: #555;">Automático intenta primero el modelo más preciso (TensorFlow) y, si falla, usa MusicNN. "Solo TF" requiere tener los modelos en la carpeta <code>essentia/tf_models</code>.</p>
+                <p class="paragraph-help">Automático intenta primero el modelo más preciso (TensorFlow) y, si falla, usa MusicNN. "Solo TF" requiere tener los modelos en la carpeta <code>essentia/tf_models</code>.</p>
             </div>
             <div class="control-group">
                 <button class="btn btn-success" onclick="saveConfig()">💾 Guardar Configuración</button>
-                <button class="btn btn-primary" onclick="saveAndReloadConfig()" style="margin-left: 10px;">🔄 Guardar y Aplicar</button>
+                <button class="btn btn-primary ml-10" onclick="saveAndReloadConfig()">🔄 Guardar y Aplicar</button>
             </div>
-            <div id="config-ffmpeg-section" style="margin-top: 20px; padding: 15px; border-radius: 10px; background: #e8f4fd;">
+            <div id="config-ffmpeg-section" class="info-panel">
                 <h3>🎬 ffmpeg</h3>
-                <p style="margin: 8px 0;">Estado: <strong id="config-ffmpeg-status-text">Comprobando...</strong></p>
-                <p id="config-ffmpeg-path" style="margin: 4px 0; font-size:0.85em; color:#555; display:none;"></p>
-                <div id="config-ffmpeg-install-area" style="display:none; margin-top:12px; padding:12px; background:#fff3cd; border-radius:8px; border:1px solid #ffc107;">
-                    <p style="margin:0 0 8px; color:#856404;"><strong>ffmpeg no encontrado.</strong> Es necesario para convertir audio a MP3.</p>
-                    <p id="config-ffmpeg-cmd" style="font-family:monospace; background:#f8f9fa; padding:8px; border-radius:4px; margin:8px 0; word-break:break-all;"></p>
-                    <p id="config-ffmpeg-note" style="font-size:0.9em; color:#555; margin:4px 0;"></p>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                <p class="paragraph-sm">Estado: <strong id="config-ffmpeg-status-text">Comprobando...</strong></p>
+                <p id="config-ffmpeg-path" class="config-ffmpeg-path" style="display:none;"></p>
+                <div id="config-ffmpeg-install-area" class="config-ffmpeg-install-area" style="display:none;">
+                    <p class="config-ffmpeg-warning"><strong>ffmpeg no encontrado.</strong> Es necesario para convertir audio a MP3.</p>
+                    <p id="config-ffmpeg-cmd" class="config-ffmpeg-cmd"></p>
+                    <p id="config-ffmpeg-note" class="config-ffmpeg-note"></p>
+                    <div class="config-ffmpeg-actions">
                         <button id="config-ffmpeg-install-btn" class="btn btn-warning" onclick="installFfmpegWinget()" style="display:none;">
                             ⚡ Instalar con winget
                         </button>
-                        <a id="config-ffmpeg-dl-link" href="https://www.gyan.dev/ffmpeg/builds/" target="_blank"
-                           class="btn btn-primary" style="text-decoration:none; text-align:center;">
+                        <a id="config-ffmpeg-dl-link" href="https://www.gyan.dev/ffmpeg/builds/" target="_blank" rel="noopener noreferrer"
+                           class="btn btn-primary btn-link">
                             📥 Descargar manualmente
                         </a>
                     </div>
-                    <div id="config-ffmpeg-install-status" style="margin-top:8px; font-weight:bold;"></div>
+                    <div id="config-ffmpeg-install-status" class="config-ffmpeg-install-status"></div>
                 </div>
             </div>
 
-            <div style="margin-top: 20px; padding: 15px; background: #e8f4fd; border-radius: 10px;">
+            <div class="info-panel">
                 <h3>📦 yt-dlp</h3>
-                <p style="margin: 10px 0;">Versión instalada: <strong id="config-ytdlp-version">—</strong></p>
+                <p class="paragraph-md">Versión instalada: <strong id="config-ytdlp-version">—</strong></p>
                 <button class="btn btn-primary" onclick="updateYtDlp()" id="config-ytdlp-update-btn">🔄 Forzar actualización</button>
-                <span id="config-ytdlp-status" style="margin-left: 10px;"></span>
+                <span id="config-ytdlp-status" class="ml-10"></span>
             </div>
 
-            <div style="margin-top: 20px; padding: 15px; background: #e8f4fd; border-radius: 10px;">
+            <div class="info-panel">
                 <h3>🔐 Cookies de YouTube</h3>
-                <p style="margin: 8px 0; font-size: 0.9em; color: #555;">
+                <p class="text-muted-sm">
                     Necesarias para acceder a tu playlist <strong>"Me gusta"</strong>
                     (<code>music.youtube.com/playlist?list=LM</code>) y a videos privados o con restricción de edad.
                 </p>
-                <p style="margin: 8px 0; font-size: 0.9em; color: #555;">
+                <p class="text-muted-sm">
                     Recomendado: leer cookies directamente del navegador. Si fallara, usa un archivo
                     de cookies en formato Netscape exportado con una extensión.
                 </p>
 
                 <div class="control-group">
                     <label>Leer cookies del navegador:</label>
-                    <select id="config-cookies-browser" style="min-width: 200px;">
+                    <select id="config-cookies-browser" class="cookies-browser-select">
                         <option value="">— Ninguno (usar archivo) —</option>
                         <option value="chrome">Google Chrome</option>
                         <option value="edge">Microsoft Edge</option>
@@ -1591,37 +2434,37 @@
                     <label title="Opcional: nombre del perfil del navegador (ej: Default, Profile 1)">Perfil del navegador (opcional):</label>
                     <input type="text" id="config-cookies-browser-profile" placeholder="Ej: Default, Profile 1, work">
                 </div>
-                <p style="margin: 8px 0; font-size: 0.85em; color: #856404; background: #fff3cd; padding: 8px; border-radius: 6px;">
+                <p class="text-note-warning">
                     ⚠️ <strong>Cierra TODAS las ventanas del navegador</strong> antes de probar.
                     Algunos navegadores (Chrome/Edge) bloquean el acceso a las cookies cuando están abiertos.
                 </p>
 
-                <div class="control-group" style="margin-top: 15px;">
+                <div class="control-group mt-15">
                     <label>Archivo de cookies (alternativa o fallback):</label>
                     <input type="text" id="config-cookies-file" placeholder="Ruta a youtube_cookies.txt (formato Netscape)">
                     <button class="btn btn-primary" onclick="browseCookiesFile()">📂 Seleccionar</button>
                 </div>
-                <p style="margin: 8px 0; font-size: 0.85em; color: #555;">
+                <p class="text-muted-xs">
                     Si lo dejas vacío, se busca <code>youtube_cookies.txt</code> en tu carpeta de usuario o junto a la app.
                     Para exportarlo: usa la extensión "Get cookies.txt LOCALLY" en una sesión donde estés logueado en YouTube Music,
                     y <strong>no vuelvas a usar ese perfil</strong> después (YouTube rota las cookies si lo detecta).
                 </p>
 
-                <div class="control-group" style="margin-top: 10px;">
+                <div class="control-group mt-10">
                     <button class="btn btn-warning" onclick="testCookies()" id="config-cookies-test-btn">
                         🧪 Probar cookies con la playlist "LM"
                     </button>
                 </div>
-                <div id="config-cookies-test-result" style="margin-top: 10px;"></div>
+                <div id="config-cookies-test-result" class="mt-10"></div>
             </div>
-            <div style="margin-top: 20px; padding: 15px; background: #d4edda; border-radius: 10px;">
+            <div class="info-panel-success">
                 <h3>🔄 Reinicio de la Aplicación</h3>
-                <p style="margin: 10px 0;">Si los cambios no se aplican correctamente, reinicia la aplicación:</p>
+                <p class="paragraph-md">Si los cambios no se aplican correctamente, reinicia la aplicación:</p>
                 <button class="btn btn-warning" onclick="restartApp()">🔁 Reiniciar Aplicación</button>
             </div>
-            <div style="margin-top: 20px; padding: 20px; background: #fff3cd; border-radius: 10px;">
+            <div class="info-panel-danger">
                 <h3>⚠️ Zona de Peligro</h3>
-                <p style="margin: 10px 0;">Estas acciones son destructivas e irreversibles</p>
+                <p class="paragraph-md">Estas acciones son destructivas e irreversibles</p>
                 <button class="btn btn-danger" onclick="resetDatabase()">💣 RESETEAR BASE DE DATOS</button>
             </div>
             <div class="log-container" id="config-log"></div>
@@ -1630,12 +2473,12 @@
         <!-- Pestaña: About -->
         <div id="about" class="tab-content">
             <h2>ℹ️ About</h2>
-            <div style="text-align: center; padding: 40px;">
-                <h1 style="color: #667eea; margin-bottom: 20px;">🎵 Gestor de Música para DJ</h1>
-                <p style="font-size: 1.2em; margin-bottom: 30px;">Descargador de música de YouTube para DJ<br>con gestión de metadatos y base de datos</p>
-                <hr style="margin: 30px 0;">
-                <p style="margin: 20px 0;"><strong>Versión:</strong> 1.0.0</p>
-                <p style="margin: 20px 0;"><strong>GitHub:</strong> <a href="https://github.com/tu-usuario/tu-repo" target="_blank">https://github.com/tu-usuario/tu-repo</a></p>
+            <div class="about-container">
+                <h1 class="about-title">🎵 Gestor de Música para DJ</h1>
+                <p class="about-subtitle">Descargador de música de YouTube para DJ<br>con gestión de metadatos y base de datos</p>
+                <hr class="about-separator">
+                <p class="about-info"><strong>Versión:</strong> 1.0.0</p>
+                <p class="about-info"><strong>GitHub:</strong> <a href="https://github.com/tu-usuario/tu-repo" target="_blank" rel="noopener noreferrer">https://github.com/tu-usuario/tu-repo</a></p>
             </div>
         </div>
     </div>
@@ -1655,7 +2498,7 @@
                 </div>
                 <div id="drives-container" class="drives-bar" style="display: none;"></div>
                 <div id="file-list" class="file-list">
-                    <p style="padding: 20px; text-align: center; color: #666;">Cargando...</p>
+                    <p class="file-list-loading">Cargando...</p>
                 </div>
             </div>
             <div class="modal-footer">
@@ -1701,7 +2544,791 @@
                 loadPlaylist();
             } else if (tabName === 'config') {
                 loadConfig();
+            } else if (tabName === 'radio') {
+                radioEnsureLoaded();
+                // El canvas del waveform puede tener ancho 0 si la pestaña estaba oculta
+                setTimeout(() => { try { radioDrawWaveform(); radioUpdateProgress(); } catch (_) {} }, 30);
             }
+        }
+
+        // ============================================================
+        // MODO RADIO
+        // ============================================================
+        const Radio = {
+            songs: [],          // Lista cruda de canciones de la BD (filtradas por género actual)
+            queue: [],          // Cola barajada pendiente de reproducir
+            current: null,      // Canción actualmente sonando
+            audio: null,        // <audio> element
+            loaded: false,      // ¿Cargada la lista de canciones desde la BD?
+            loading: false,
+            selectedGenre: ''   // '' = todos
+        };
+
+        async function radioEnsureLoaded() {
+            if (Radio.loaded || Radio.loading) return;
+            await radioLoadSongs();
+        }
+
+        async function radioLoadSongs() {
+            Radio.loading = true;
+            radioSetStatus('Cargando canciones de la base de datos…', '');
+            try {
+                const response = await fetch('/api/database/songs?limit=0&show_ignored=false');
+                const data = await response.json();
+                if (!data.success) {
+                    radioSetStatus('Error al cargar la base de datos: ' + (data.error || 'desconocido'), 'error');
+                    return;
+                }
+                // Solo canciones con archivo (file_path) — el resto no se puede reproducir
+                Radio.songs = (data.songs || []).filter(s => (s.file_path || '').trim());
+                radioPopulateGenreSelect(Radio.songs);
+                radioRebuildQueue();
+                Radio.loaded = true;
+                if (Radio.songs.length === 0) {
+                    radioSetStatus('No hay canciones reproducibles en la base de datos', 'error');
+                    radioSetButtonsEnabled(false);
+                } else {
+                    radioSetStatus(`Listo · ${Radio.songs.length} canciones disponibles`, '');
+                    radioSetButtonsEnabled(true);
+                }
+                radioUpdateCounter();
+            } catch (e) {
+                radioSetStatus('Error: ' + e.message, 'error');
+            } finally {
+                Radio.loading = false;
+            }
+        }
+
+        function radioPopulateGenreSelect(songs) {
+            const select = document.getElementById('radio-genre-select');
+            if (!select) return;
+            const prev = Radio.selectedGenre;
+            const genres = new Map(); // genre -> count
+            songs.forEach(s => {
+                const g = (s.genre || '').trim() || 'Sin Clasificar';
+                genres.set(g, (genres.get(g) || 0) + 1);
+            });
+            const sorted = Array.from(genres.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+            select.innerHTML = `<option value="">— Todos los géneros (${songs.length}) —</option>` +
+                sorted.map(([g, n]) => `<option value="${g.replace(/"/g, '&quot;')}">${g} (${n})</option>`).join('');
+            // Reaplicar selección previa si todavía existe
+            if (prev && Array.from(select.options).some(o => o.value === prev)) {
+                select.value = prev;
+            }
+        }
+
+        function onRadioGenreChange() {
+            const select = document.getElementById('radio-genre-select');
+            Radio.selectedGenre = select ? select.value : '';
+            radioRebuildQueue();
+            radioUpdateCounter();
+            const filtered = radioFilteredSongs();
+            if (filtered.length === 0) {
+                radioSetStatus(`No hay canciones para el género "${Radio.selectedGenre}"`, 'error');
+                radioSetButtonsEnabled(false);
+            } else {
+                radioSetButtonsEnabled(true);
+                if (!Radio.current) {
+                    radioSetStatus(`Listo · ${filtered.length} canciones del género`, '');
+                }
+            }
+        }
+
+        function radioFilteredSongs() {
+            if (!Radio.selectedGenre) return Radio.songs;
+            return Radio.songs.filter(s => ((s.genre || '').trim() || 'Sin Clasificar') === Radio.selectedGenre);
+        }
+
+        function radioShuffle(arr) {
+            const a = arr.slice();
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        }
+
+        function radioRebuildQueue() {
+            Radio.queue = radioShuffle(radioFilteredSongs());
+        }
+
+        function radioGetAudio() {
+            if (Radio.audio) return Radio.audio;
+            const a = document.getElementById('radio-audio');
+            if (!a) return null;
+            Radio.audio = a;
+            // Auto-avance al terminar
+            a.addEventListener('ended', () => radioPlayNext());
+            // Si falla la reproducción, saltar a la siguiente (con un pequeño margen)
+            a.addEventListener('error', () => {
+                radioSetStatus('Error reproduciendo "' + (Radio.current?.title || '') + '". Saltando…', 'error');
+                setTimeout(() => radioPlayNext(), 800);
+            });
+            a.addEventListener('play', () => {
+                radioSetStatus('Sonando ahora', 'playing');
+                document.getElementById('radio-disc')?.classList.add('spinning');
+                const btn = document.getElementById('radio-btn-play');
+                if (btn) btn.textContent = '⏸ Pausa';
+            });
+            a.addEventListener('pause', () => {
+                if (!a.ended) radioSetStatus('En pausa', '');
+                document.getElementById('radio-disc')?.classList.remove('spinning');
+                const btn = document.getElementById('radio-btn-play');
+                if (btn) btn.textContent = '▶ Play';
+            });
+            // Progreso de reproducción
+            a.addEventListener('loadedmetadata', radioUpdateProgress);
+            a.addEventListener('durationchange', radioUpdateProgress);
+            a.addEventListener('timeupdate', radioUpdateProgress);
+            a.addEventListener('progress', radioUpdateBuffered);
+            a.addEventListener('seeked', radioUpdateProgress);
+            a.addEventListener('emptied', () => {
+                radioSetProgress(0, 0);
+                radioDrawWaveform();
+            });
+
+            // Seek por click en la barra de progreso
+            const bar = document.getElementById('radio-progress-bar');
+            if (bar) bar.addEventListener('click', (e) => radioSeekFromEvent(e, bar));
+
+            // Seek por click en el waveform
+            const wave = document.getElementById('radio-waveform-wrap');
+            if (wave) wave.addEventListener('click', (e) => radioSeekFromEvent(e, wave));
+
+            // Botón "Generar" waveform en el panel
+            const genBtn = document.getElementById('radio-waveform-gen');
+            if (genBtn) genBtn.addEventListener('click', radioGenerateCurrentWaveform);
+
+            // Redibujar waveform al cambiar el tamaño de la ventana
+            window.addEventListener('resize', () => {
+                if (Radio.current) radioDrawWaveform();
+            });
+
+            return a;
+        }
+
+        // ---------- Helpers de formato ----------
+        function radioFormatTime(seconds) {
+            const s = Number(seconds);
+            if (!Number.isFinite(s) || s < 0) return '0:00';
+            const total = Math.floor(s);
+            const h = Math.floor(total / 3600);
+            const m = Math.floor((total % 3600) / 60);
+            const sec = total % 60;
+            if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+            return `${m}:${sec.toString().padStart(2, '0')}`;
+        }
+        function radioFormatBytes(b) {
+            const n = Number(b);
+            if (b == null || !Number.isFinite(n) || n < 0) return '—';
+            if (n < 1024) return `${n} B`;
+            if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+            if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+            return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+        }
+        function radioFormatDate(d) {
+            if (!d) return '—';
+            try {
+                const dt = new Date(d);
+                if (isNaN(dt.getTime())) return d;
+                return dt.toLocaleDateString('es-ES', {
+                    year: 'numeric', month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            } catch (_) { return d; }
+        }
+        function radioFormatSource(src) {
+            const map = { 'playlist': '📋 Playlist', 'direct': '🔗 Directo', 'import': '📁 Importado', 'puntual': '⚡ Puntual' };
+            return src ? (map[src] || src) : '—';
+        }
+        function radioFormatLufs(v) {
+            if (v == null) return '—';
+            const n = Number(v);
+            if (!Number.isFinite(n)) return '—';
+            return `${n.toFixed(1)} LUFS`;
+        }
+        // Escala DJ: la biblioteca vive entre -7 y -9 LUFS. Por debajo de -11 conviene normalizar
+        // (objetivo -9 LUFS / TP -1 dBTP); por debajo de -14 la onda se ve pequeña en DJUCED.
+        const DJ_LOW_VOLUME_LUFS = -11.0;
+        const DJ_VERY_LOW_VOLUME_LUFS = -14.0;
+        function formatVolumeBadge(v) {
+            const n = v != null ? Number(v) : null;
+            if (n == null || !Number.isFinite(n)) {
+                return '<span class="volume-unknown" title="No medido">—</span>';
+            }
+            const txt = `${n.toFixed(1)} LUFS`;
+            if (n < DJ_VERY_LOW_VOLUME_LUFS) {
+                return `<span class="volume-badge very-low" title="Muy bajo para DJUCED: normaliza a -9 LUFS">${txt}</span>`;
+            }
+            if (n < DJ_LOW_VOLUME_LUFS) {
+                return `<span class="volume-badge low" title="Volumen bajo (objetivo -9 LUFS)">${txt}</span>`;
+            }
+            return `<span>${txt}</span>`;
+        }
+        function radioEscapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // ---------- Progreso ----------
+        function radioSetProgress(current, duration) {
+            const fill = document.getElementById('radio-progress-fill');
+            const tCur = document.getElementById('radio-time-current');
+            const tTot = document.getElementById('radio-time-total');
+            const pct = (duration && Number.isFinite(duration) && duration > 0)
+                ? Math.min(100, Math.max(0, (current / duration) * 100))
+                : 0;
+            if (fill) fill.style.width = pct + '%';
+            if (tCur) tCur.textContent = radioFormatTime(current);
+            if (tTot) tTot.textContent = radioFormatTime(duration || (Radio.current && Radio.current.duration) || 0);
+            // Repintar overlay del waveform
+            radioRenderWaveformProgress(pct);
+        }
+        function radioUpdateProgress() {
+            const a = Radio.audio;
+            if (!a) return;
+            radioSetProgress(a.currentTime || 0, a.duration || 0);
+        }
+        function radioUpdateBuffered() {
+            const a = Radio.audio;
+            const buf = document.getElementById('radio-progress-buffer');
+            if (!a || !buf) return;
+            try {
+                if (a.buffered && a.buffered.length > 0 && a.duration) {
+                    const end = a.buffered.end(a.buffered.length - 1);
+                    const pct = Math.min(100, (end / a.duration) * 100);
+                    buf.style.width = pct + '%';
+                }
+            } catch (_) { /* ignorar */ }
+        }
+        function radioSeekFromEvent(e, el) {
+            const a = Radio.audio;
+            if (!a || !a.duration || !Number.isFinite(a.duration)) return;
+            const rect = el.getBoundingClientRect();
+            const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+            try { a.currentTime = ratio * a.duration; } catch (_) { /* ignorar */ }
+        }
+
+        // ---------- Waveform ----------
+        function radioDrawWaveform() {
+            const canvas = document.getElementById('radio-waveform');
+            const wrap = document.getElementById('radio-waveform-wrap');
+            const empty = document.getElementById('radio-waveform-empty');
+            if (!canvas || !wrap) return;
+            const data = Radio.current && Array.isArray(Radio.current.waveform_data) ? Radio.current.waveform_data : null;
+            // Ajustar el tamaño del canvas al de su contenedor (para nitidez)
+            const w = wrap.clientWidth || canvas.width;
+            const h = wrap.clientHeight || canvas.height;
+            if (canvas.width !== w) canvas.width = w;
+            if (canvas.height !== h) canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, w, h);
+            if (!data || data.length === 0) {
+                if (empty) empty.hidden = false;
+                canvas.style.opacity = '0.15';
+                return;
+            }
+            if (empty) empty.hidden = true;
+            canvas.style.opacity = '1';
+            const mid = h / 2;
+            const barWidth = Math.max(1, w / data.length);
+            ctx.fillStyle = 'rgba(180,180,220,0.55)';
+            for (let i = 0; i < data.length; i++) {
+                const v = Math.min(1, Math.max(0, Number(data[i]) || 0));
+                const barH = Math.max(1, v * (mid - 2));
+                const x = (i / data.length) * w;
+                ctx.fillRect(x, mid - barH, barWidth + 0.5, barH * 2);
+            }
+            // Repintar overlay con el porcentaje actual
+            const a = Radio.audio;
+            const pct = (a && a.duration > 0) ? (a.currentTime / a.duration) * 100 : 0;
+            radioRenderWaveformProgress(pct);
+        }
+        function radioRenderWaveformProgress(pct) {
+            const canvas = document.getElementById('radio-waveform');
+            if (!canvas) return;
+            const data = Radio.current && Array.isArray(Radio.current.waveform_data) ? Radio.current.waveform_data : null;
+            if (!data || data.length === 0) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            const mid = h / 2;
+            const cutoff = Math.max(0, Math.min(1, pct / 100));
+            const cutoffIndex = Math.floor(data.length * cutoff);
+            const barWidth = Math.max(1, w / data.length);
+            // Repintar la parte ya reproducida con color de progreso
+            // (gradient horizontal estilo barra)
+            const grad = ctx.createLinearGradient(0, 0, w, 0);
+            grad.addColorStop(0, '#667eea');
+            grad.addColorStop(1, '#f093fb');
+            ctx.fillStyle = grad;
+            // limpiar primero la zona ya tocada por la zona "viva" para evitar superposición de tonos
+            ctx.clearRect(0, 0, cutoffIndex * barWidth + barWidth, h);
+            for (let i = 0; i < cutoffIndex; i++) {
+                const v = Math.min(1, Math.max(0, Number(data[i]) || 0));
+                const barH = Math.max(1, v * (mid - 2));
+                const x = (i / data.length) * w;
+                ctx.fillRect(x, mid - barH, barWidth + 0.5, barH * 2);
+            }
+            // Línea vertical en la posición actual
+            const xPos = cutoff * w;
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            ctx.fillRect(Math.min(w - 1, Math.max(0, xPos - 0.5)), 0, 1.2, h);
+        }
+        async function radioGenerateCurrentWaveform() {
+            const s = Radio.current;
+            const btn = document.getElementById('radio-waveform-gen');
+            if (!s || !s.video_id) return;
+            if (btn) { btn.disabled = true; btn.textContent = '…'; }
+            try {
+                const resp = await fetch(`/api/database/song/${encodeURIComponent(s.video_id)}/waveform`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.success && data.waveform_data) {
+                    s.waveform_data = data.waveform_data;
+                    // Actualizar también en Radio.songs y en allSongs si existieran
+                    const inRadio = Radio.songs.find(x => (x.video_id || '') === s.video_id);
+                    if (inRadio) inRadio.waveform_data = data.waveform_data;
+                    if (typeof allSongs !== 'undefined') {
+                        const inAll = allSongs.find(x => (x.video_id || '') === s.video_id);
+                        if (inAll) inAll.waveform_data = data.waveform_data;
+                    }
+                    radioDrawWaveform();
+                } else {
+                    if (btn) { btn.disabled = false; btn.textContent = 'Reintentar'; }
+                }
+            } catch (e) {
+                if (btn) { btn.disabled = false; btn.textContent = 'Reintentar'; }
+            }
+        }
+
+        function radioTogglePlay() {
+            const audio = radioGetAudio();
+            if (!audio) return;
+            if (!Radio.current) {
+                radioPlayNext();
+                return;
+            }
+            if (audio.paused) {
+                audio.play().catch(() => {});
+            } else {
+                audio.pause();
+            }
+        }
+
+        async function radioDeleteCurrent() {
+            const s = Radio.current;
+            if (!s || !s.video_id) {
+                radioSetStatus('No hay canción cargada para eliminar', 'error');
+                return;
+            }
+            const label = s.title || s.video_id;
+            if (!confirm(`¿Eliminar "${label}"?\n\nEsta acción borrará el archivo del disco y la entrada de la base de datos.`)) {
+                return;
+            }
+            const delBtn = document.getElementById('radio-btn-delete');
+            if (delBtn) { delBtn.disabled = true; delBtn.textContent = '⏳ Eliminando…'; }
+            try {
+                const resp = await fetch('/api/database/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_id: s.video_id })
+                });
+                const data = await resp.json();
+                if (!data.success) {
+                    radioSetStatus('Error al eliminar: ' + (data.error || 'desconocido'), 'error');
+                    if (delBtn) { delBtn.disabled = false; delBtn.textContent = '🗑️ Eliminar'; }
+                    return;
+                }
+                // Quitar la canción de las estructuras locales
+                const vid = s.video_id;
+                Radio.songs = Radio.songs.filter(x => (x.video_id || '') !== vid);
+                Radio.queue = Radio.queue.filter(x => (x.video_id || '') !== vid);
+                if (typeof allSongs !== 'undefined' && Array.isArray(allSongs)) {
+                    const idx = allSongs.findIndex(x => (x.video_id || '') === vid);
+                    if (idx !== -1) allSongs.splice(idx, 1);
+                }
+                // Parar audio actual y limpiar
+                const audio = Radio.audio;
+                if (audio) {
+                    try { audio.pause(); } catch (_) {}
+                    try { audio.removeAttribute('src'); audio.load(); } catch (_) {}
+                }
+                Radio.current = null;
+                // Refrescar selector de géneros (los counts cambian) y contador
+                radioPopulateGenreSelect(Radio.songs);
+                radioUpdateCounter();
+                if (delBtn) { delBtn.disabled = true; delBtn.textContent = '🗑️ Eliminar'; }
+                radioSetStatus(`🗑️ Eliminada "${label}". Reproduciendo siguiente…`, '');
+                // Si no quedan canciones, dejar el panel vacío
+                if (radioFilteredSongs().length === 0) {
+                    radioRenderCurrent();
+                    radioSetButtonsEnabled(false);
+                    radioSetStatus('No quedan canciones para reproducir', 'error');
+                    return;
+                }
+                // Saltar a la siguiente automáticamente
+                radioPlayNext();
+            } catch (e) {
+                radioSetStatus('Error al eliminar: ' + e.message, 'error');
+                if (delBtn) { delBtn.disabled = false; delBtn.textContent = '🗑️ Eliminar'; }
+            }
+        }
+
+        function radioPlayNext() {
+            if (Radio.queue.length === 0) {
+                radioRebuildQueue();
+                if (Radio.queue.length === 0) {
+                    radioSetStatus('No hay canciones para reproducir', 'error');
+                    return;
+                }
+            }
+            const next = Radio.queue.shift();
+            Radio.current = next;
+            const audio = radioGetAudio();
+            radioRenderCurrent();
+            if (!audio || !next) return;
+            audio.src = `/api/database/file?path=${encodeURIComponent(next.file_path)}`;
+            audio.play().catch(err => {
+                // Si autoplay está bloqueado, el usuario puede pulsar Play
+                radioSetStatus('Pulsa ▶ Play para reproducir (' + (err?.name || 'autoplay bloqueado') + ')', 'error');
+            });
+            radioUpdateCounter();
+        }
+
+        function radioRenderCurrent() {
+            const s = Radio.current;
+            const titleEl = document.getElementById('radio-title');
+            const artistEl = document.getElementById('radio-artist');
+            const metaEl = document.getElementById('radio-meta');
+            const emptyEl = document.getElementById('radio-info-empty');
+            const contentEl = document.getElementById('radio-info-content');
+            const delBtn = document.getElementById('radio-btn-delete');
+
+            if (!s) {
+                if (titleEl) titleEl.textContent = '—';
+                if (artistEl) artistEl.textContent = '—';
+                if (metaEl) metaEl.textContent = '';
+                if (emptyEl) emptyEl.hidden = false;
+                if (contentEl) contentEl.hidden = true;
+                if (delBtn) delBtn.disabled = true;
+                radioSetProgress(0, 0);
+                return;
+            }
+            if (delBtn) delBtn.disabled = false;
+
+            // Cabecera (columna izquierda)
+            if (titleEl) titleEl.textContent = s.title || s.video_id || 'Sin título';
+            if (artistEl) artistEl.textContent = s.artist || 'Artista desconocido';
+            const parts = [];
+            if (s.genre) parts.push('🎼 ' + s.genre);
+            if (s.year) parts.push('📅 ' + s.year);
+            if (metaEl) metaEl.textContent = parts.join(' · ');
+
+            // Panel derecho
+            if (emptyEl) emptyEl.hidden = true;
+            if (contentEl) contentEl.hidden = false;
+
+            // Carátula
+            const artWrap = document.getElementById('radio-albumart-wrap');
+            if (artWrap) {
+                const url = (s.thumbnail_url || '').trim();
+                if (url) {
+                    artWrap.innerHTML = `<img src="${radioEscapeHtml(url)}" alt="Album Art" onerror="this.parentElement.innerHTML='<span class=&quot;placeholder&quot;>🎵</span>'">`;
+                } else {
+                    artWrap.innerHTML = '<span class="placeholder">🎵</span>';
+                }
+            }
+
+            // Título y artista (panel)
+            const iTitle = document.getElementById('radio-info-title');
+            const iArtist = document.getElementById('radio-info-artist');
+            if (iTitle) iTitle.textContent = s.title || s.video_id || 'Sin título';
+            if (iArtist) iArtist.textContent = s.artist || 'Artista desconocido';
+
+            // Waveform
+            radioDrawWaveform();
+
+            // Tabla de metadatos
+            const meta = document.getElementById('radio-info-meta');
+            if (meta) {
+                const rows = [];
+                const push = (label, value, opts) => {
+                    rows.push(`<dt>${radioEscapeHtml(label)}</dt><dd${opts && opts.cls ? ' class="' + opts.cls + '"' : ''}>${value}</dd>`);
+                };
+                push('Género', radioEscapeHtml(s.genre || '—'));
+                push('Año', radioEscapeHtml(s.year || '—'));
+                push('Década', radioEscapeHtml(s.decade || '—'));
+                push('Duración', radioEscapeHtml(radioFormatTime(s.duration)));
+                push('Tamaño', radioEscapeHtml(radioFormatBytes(s.file_size)));
+                push('Bitrate', s.bitrate_kbps != null ? `${radioEscapeHtml(s.bitrate_kbps)} kbps` : '—');
+                push('Formato', radioEscapeHtml((s.file_type || (s.file_path ? (s.file_path.split('.').pop() || '').toUpperCase() : '') || '—')));
+                push('Volumen', radioEscapeHtml(radioFormatLufs(s.volume_lufs)));
+                if (s.volume_offset_db != null && Number(s.volume_offset_db) !== 0) {
+                    push('Offset volumen', `${Number(s.volume_offset_db).toFixed(1)} dB`);
+                }
+                push('Origen', radioEscapeHtml(radioFormatSource(s.download_source)));
+                push('Descargada', radioEscapeHtml(radioFormatDate(s.downloaded_at)));
+                if (s.updated_at && s.updated_at !== s.downloaded_at) {
+                    push('Actualizada', radioEscapeHtml(radioFormatDate(s.updated_at)));
+                }
+                push('Video ID', s.video_id
+                    ? `<a href="${radioEscapeHtml(s.url || 'https://www.youtube.com/watch?v=' + s.video_id)}" target="_blank" rel="noopener" style="color:#a5b4fc;text-decoration:none;">${radioEscapeHtml(s.video_id)} ↗</a>`
+                    : '—');
+                push('Archivo', radioEscapeHtml(s.file_path || '—'), { cls: 'path' });
+                meta.innerHTML = rows.join('');
+            }
+
+            // Reiniciar progreso visual mientras se carga la nueva canción
+            radioSetProgress(0, s.duration || 0);
+            const buf = document.getElementById('radio-progress-buffer');
+            if (buf) buf.style.width = '0%';
+        }
+
+        function radioSetStatus(msg, kind) {
+            const el = document.getElementById('radio-status');
+            if (!el) return;
+            el.textContent = msg;
+            el.classList.remove('playing', 'error');
+            if (kind === 'playing') el.classList.add('playing');
+            else if (kind === 'error') el.classList.add('error');
+        }
+
+        // ============================================================
+        // Buscador del modo Radio
+        // ============================================================
+        const RadioSearch = {
+            lastQuery: '',
+            results: [],
+            activeIndex: -1,
+            maxResults: 30
+        };
+
+        function onRadioSearchInput() {
+            const input = document.getElementById('radio-search-input');
+            const clearBtn = document.getElementById('radio-search-clear');
+            const q = (input?.value || '').trim();
+            if (clearBtn) clearBtn.hidden = !q;
+            RadioSearch.lastQuery = q;
+            RadioSearch.activeIndex = -1;
+            if (!q) {
+                radioHideSearchResults();
+                return;
+            }
+            // Si todavía no se han cargado las canciones, dispara la carga
+            if (!Radio.loaded && !Radio.loading) {
+                radioEnsureLoaded().then(() => onRadioSearchInput());
+                radioRenderSearchHint('Cargando canciones…');
+                return;
+            }
+            const results = radioSearchSongs(q, RadioSearch.maxResults);
+            RadioSearch.results = results;
+            radioRenderSearchResults(results, q);
+        }
+
+        function radioRenderSearchHint(msg) {
+            const hint = document.getElementById('radio-search-hint');
+            if (hint) hint.textContent = msg || '';
+        }
+
+        function radioSearchSongs(query, limit) {
+            if (!query) return [];
+            const q = query.toLowerCase();
+            const tokens = q.split(/\s+/).filter(Boolean);
+            const matches = [];
+            for (const s of Radio.songs) {
+                const hay = [
+                    (s.title || ''),
+                    (s.artist || ''),
+                    (s.genre || ''),
+                    (s.year || ''),
+                    (s.decade || '')
+                ].join(' ').toLowerCase();
+                let score = 0;
+                let allMatch = true;
+                for (const t of tokens) {
+                    if (!hay.includes(t)) { allMatch = false; break; }
+                    if ((s.title || '').toLowerCase().includes(t)) score += 2;
+                    if ((s.artist || '').toLowerCase().includes(t)) score += 1;
+                }
+                if (allMatch) matches.push({ song: s, score });
+            }
+            matches.sort((a, b) => b.score - a.score || (a.song.title || '').localeCompare(b.song.title || ''));
+            return matches.slice(0, limit).map(m => m.song);
+        }
+
+        function radioRenderSearchResults(songs, query) {
+            const box = document.getElementById('radio-search-results');
+            const hint = document.getElementById('radio-search-hint');
+            if (!box) return;
+            if (!songs.length) {
+                box.hidden = false;
+                box.innerHTML = `<div class="radio-search-empty">Sin resultados para "${radioEscapeHtml(query)}"</div>`;
+                if (hint) hint.textContent = '';
+                return;
+            }
+            if (hint) hint.textContent = `${songs.length} resultado${songs.length === 1 ? '' : 's'} · Enter = reproducir ahora, Esc = cerrar`;
+            const html = songs.map((s, idx) => {
+                const art = (s.thumbnail_url || '').trim();
+                const artHtml = art
+                    ? `<img src="${radioEscapeHtml(art)}" alt="" onerror="this.parentElement.innerHTML='🎵'">`
+                    : '🎵';
+                const metaParts = [];
+                if (s.artist) metaParts.push(radioEscapeHtml(s.artist));
+                if (s.genre) metaParts.push(radioEscapeHtml(s.genre));
+                if (s.year) metaParts.push(radioEscapeHtml(s.year));
+                if (s.duration) metaParts.push(radioFormatTime(s.duration));
+                const meta = metaParts.join(' · ') || '—';
+                const vid = radioEscapeHtml(s.video_id || '');
+                return `
+                    <div class="radio-search-result${idx === RadioSearch.activeIndex ? ' active' : ''}" data-vid="${vid}" data-idx="${idx}">
+                        <div class="rsr-art">${artHtml}</div>
+                        <div class="rsr-text">
+                            <div class="rsr-title">${radioEscapeHtml(s.title || s.video_id || 'Sin título')}</div>
+                            <div class="rsr-meta">${meta}</div>
+                        </div>
+                        <div class="rsr-actions">
+                            <button type="button" class="rsr-btn primary" title="Reproducir ahora" data-action="now" data-vid="${vid}">▶ Ahora</button>
+                            <button type="button" class="rsr-btn" title="Añadir al final de la cola" data-action="queue" data-vid="${vid}">➕ Cola</button>
+                        </div>
+                    </div>`;
+            }).join('');
+            box.innerHTML = html;
+            box.hidden = false;
+
+            // Delegación de eventos: botones y filas
+            box.querySelectorAll('.rsr-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const vid = btn.getAttribute('data-vid');
+                    const action = btn.getAttribute('data-action');
+                    if (!vid) return;
+                    if (action === 'now') radioPlaySongNow(vid);
+                    else if (action === 'queue') radioQueueSong(vid);
+                });
+            });
+            box.querySelectorAll('.radio-search-result').forEach(row => {
+                row.addEventListener('dblclick', () => {
+                    const vid = row.getAttribute('data-vid');
+                    if (vid) radioPlaySongNow(vid);
+                });
+            });
+        }
+
+        function radioHideSearchResults() {
+            const box = document.getElementById('radio-search-results');
+            const hint = document.getElementById('radio-search-hint');
+            if (box) { box.hidden = true; box.innerHTML = ''; }
+            if (hint) hint.textContent = '';
+            RadioSearch.results = [];
+            RadioSearch.activeIndex = -1;
+        }
+
+        function clearRadioSearch() {
+            const input = document.getElementById('radio-search-input');
+            const clearBtn = document.getElementById('radio-search-clear');
+            if (input) { input.value = ''; input.focus(); }
+            if (clearBtn) clearBtn.hidden = true;
+            radioHideSearchResults();
+        }
+
+        function onRadioSearchKey(event) {
+            if (event.key === 'Escape') {
+                clearRadioSearch();
+                return;
+            }
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const list = RadioSearch.results;
+                if (!list.length) return;
+                const idx = RadioSearch.activeIndex >= 0 ? RadioSearch.activeIndex : 0;
+                const s = list[idx];
+                if (s && s.video_id) radioPlaySongNow(s.video_id);
+                return;
+            }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (!RadioSearch.results.length) return;
+                const dir = event.key === 'ArrowDown' ? 1 : -1;
+                let next = RadioSearch.activeIndex + dir;
+                if (next < 0) next = RadioSearch.results.length - 1;
+                if (next >= RadioSearch.results.length) next = 0;
+                RadioSearch.activeIndex = next;
+                radioRenderSearchResults(RadioSearch.results, RadioSearch.lastQuery);
+                // Scroll a la fila activa
+                const row = document.querySelector(`.radio-search-result[data-idx="${next}"]`);
+                if (row) row.scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        function radioFindSongById(videoId) {
+            return Radio.songs.find(s => (s.video_id || '') === videoId) || null;
+        }
+
+        function radioPlaySongNow(videoId) {
+            const song = radioFindSongById(videoId);
+            if (!song) return;
+            // Quitar la canción de la cola si ya estaba
+            Radio.queue = Radio.queue.filter(s => (s.video_id || '') !== videoId);
+            Radio.current = song;
+            const audio = radioGetAudio();
+            radioRenderCurrent();
+            if (audio && song.file_path) {
+                audio.src = `/api/database/file?path=${encodeURIComponent(song.file_path)}`;
+                audio.play().catch(err => {
+                    radioSetStatus('Pulsa ▶ Play para reproducir (' + (err?.name || 'autoplay bloqueado') + ')', 'error');
+                });
+            }
+            radioSetButtonsEnabled(true);
+            radioUpdateCounter();
+            // Visual feedback en el buscador
+            radioRenderSearchHint(`▶ Reproduciendo: ${song.title || song.video_id}`);
+        }
+
+        function radioQueueSong(videoId) {
+            const song = radioFindSongById(videoId);
+            if (!song) return;
+            // Quitar si ya estaba para evitar duplicados, y añadir al final
+            Radio.queue = Radio.queue.filter(s => (s.video_id || '') !== videoId);
+            Radio.queue.push(song);
+            radioUpdateCounter();
+            radioSetButtonsEnabled(true);
+            radioRenderSearchHint(`➕ Añadida a la cola (pos. ${Radio.queue.length}): ${song.title || song.video_id}`);
+        }
+
+        // Cerrar el dropdown al hacer click fuera
+        document.addEventListener('click', (e) => {
+            const bar = document.querySelector('.radio-search-bar');
+            if (bar && !bar.contains(e.target)) {
+                const box = document.getElementById('radio-search-results');
+                if (box && !box.hidden) box.hidden = true;
+            }
+        });
+        // Reabrir resultados al volver a hacer foco en el input
+        document.addEventListener('focusin', (e) => {
+            if (e.target && e.target.id === 'radio-search-input' && RadioSearch.lastQuery) {
+                const box = document.getElementById('radio-search-results');
+                if (box && box.innerHTML) box.hidden = false;
+            }
+        });
+
+        function radioSetButtonsEnabled(enabled) {
+            ['radio-btn-play', 'radio-btn-next'].forEach(id => {
+                const b = document.getElementById(id);
+                if (b) b.disabled = !enabled;
+            });
+            // El botón eliminar solo se habilita si además hay canción actual cargada
+            const del = document.getElementById('radio-btn-delete');
+            if (del) del.disabled = !enabled || !Radio.current;
+        }
+
+        function radioUpdateCounter() {
+            const el = document.getElementById('radio-counter');
+            if (!el) return;
+            const total = radioFilteredSongs().length;
+            const remaining = Radio.queue.length;
+            const played = total - remaining - (Radio.current ? 1 : 0);
+            if (total === 0) { el.textContent = ''; return; }
+            el.textContent = `🎶 Reproducidas: ${Math.max(0, played)} · Pendientes en la cola: ${remaining} · Total: ${total}`;
         }
         
         // ============================================================
@@ -1722,13 +3349,17 @@
             let panelEl, headerEl, bodyEl, tabsEl, toggleEl, toggleBadgeEl;
             let activeTab = 'download';
             const unreadCount = { download: 0, database: 0, playlist: 0, import: 0, testing: 0, config: 0 };
-            let savedState = { visible: true, minimized: false, maximized: false, activeTab: 'download' };
+            let savedState = { visible: true, minimized: true, maximized: false, activeTab: 'download' };
 
             function loadState() {
                 try {
                     const raw = localStorage.getItem(STORAGE_KEY);
                     if (raw) Object.assign(savedState, JSON.parse(raw));
                 } catch (_) { /* ignorar */ }
+                // Política: el panel SIEMPRE arranca minimizado al cargar la página,
+                // independientemente del estado guardado en sesiones anteriores.
+                savedState.minimized = true;
+                savedState.maximized = false;
             }
             function persistState() {
                 try {
@@ -1826,7 +3457,13 @@
                 if (!section) return;
                 const ts = new Date().toLocaleTimeString();
                 const wasAtBottom = (bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight) < 30;
-                section.textContent += `[${ts}] ${message}\n`;
+                let textEl = section.querySelector('.log-text');
+                if (!textEl) {
+                    textEl = document.createElement('div');
+                    textEl.className = 'log-text';
+                    section.appendChild(textEl);
+                }
+                textEl.textContent += `[${ts}] ${message}\n`;
                 if (tabId === activeTab && wasAtBottom) {
                     bodyEl.scrollTop = bodyEl.scrollHeight;
                 }
@@ -1838,7 +3475,16 @@
 
             function clear(tabId) {
                 const section = getSection(tabId);
-                if (section) section.textContent = '';
+                if (section) {
+                    const textEl = section.querySelector('.log-text');
+                    if (textEl) textEl.textContent = '';
+                    else {
+                        // Preservar el área de cards si existe
+                        const cards = section.querySelector('#dl-cards-area');
+                        section.textContent = '';
+                        if (cards) section.appendChild(cards);
+                    }
+                }
                 unreadCount[tabId] = 0;
                 refreshBadges();
             }
@@ -1919,8 +3565,29 @@
                 toggleEl.classList.toggle('visible', savedState.visible === false);
             }
 
-            return { init, append, clear, setActiveTab, setVisible, toggleVisible };
+            function markBusy(tabId) {
+                if (!tabsEl) return;
+                const btn = tabsEl.querySelector(`.floating-log-tab[data-log-tab="${tabId}"]`);
+                if (!btn) return;
+                if (!btn.querySelector('.tab-spinner')) {
+                    const sp = document.createElement('span');
+                    sp.className = 'tab-spinner';
+                    btn.appendChild(sp);
+                }
+            }
+            function markIdle(tabId) {
+                if (!tabsEl) return;
+                const btn = tabsEl.querySelector(`.floating-log-tab[data-log-tab="${tabId}"]`);
+                if (btn) btn.querySelector('.tab-spinner')?.remove();
+            }
+
+            return { init, append, clear, setActiveTab, setVisible, toggleVisible, markBusy, markIdle };
         })();
+
+        // FloatingLog es un `const` de ámbito de script, así que NO era una propiedad de
+        // window: todos los `if (window.FloatingLog)` del fichero eran falsos y la consola
+        // no se abría sola nunca. Exponerlo hace que esos guards funcionen.
+        window.FloatingLog = FloatingLog;
 
         // Funciones de log (compatibles con la API previa)
         function log(tabId, message) {
@@ -1929,6 +3596,181 @@
         function clearLog(tabId) {
             FloatingLog.clear(tabId);
         }
+
+        // ========== ESPEJO DE LOS LOGS DEL SERVIDOR ==========
+        // Mientras una operación larga está en curso, sondea /api/logs y volca la
+        // salida real del backend en la consola flotante. Así se ve si el servidor
+        // sigue trabajando o se ha quedado colgado.
+        // Uso:  const stream = await ServerLog.open('playlist');  ...  await stream.finish();
+        const ServerLog = (() => {
+            const POLL_MS = 900;
+
+            // Identificador único por operación, para seguir sólo sus líneas
+            let ridCounter = 0;
+            function newRequestId(prefix) {
+                ridCounter += 1;
+                return `${prefix}-${ridCounter}-${Math.random().toString(36).slice(2, 8)}`;
+            }
+
+            async function open(tabId, options) {
+                const opts = options || {};
+                const channels = opts.channels || `${tabId},server`;
+                const heartbeatMs = opts.heartbeatMs || 8000;   // avisar si el backend calla mucho
+                const prefix = opts.prefix || '⚙️ ';
+
+                let timer = null;
+                let lastSeq = null;
+                let fetching = false;
+                let closed = false;
+                const startedAt = Date.now();
+                let lastLineAt = Date.now();
+
+                async function tick() {
+                    if (fetching) return;
+                    fetching = true;
+                    try {
+                        // Con rid se sigue sólo esta petición; si no, todo el canal
+                        const params = opts.rid
+                            ? new URLSearchParams({ rid: opts.rid })
+                            : new URLSearchParams({ channel: channels });
+                        if (lastSeq !== null) params.set('since', String(lastSeq));
+                        const resp = await fetch(`/api/logs?${params.toString()}`);
+                        const data = await resp.json();
+                        if (data && data.success) {
+                            const lines = data.logs || [];
+                            lines.forEach(item => {
+                                // El texto del servidor ya trae su propia hora: quitarla
+                                // para no duplicar el timestamp que añade la consola
+                                // (sin tocar la indentación que sigue, que marca la jerarquía).
+                                const text = String(item.text || '').replace(/^\[\d{2}:\d{2}:\d{2}\] ?/, '');
+                                log(tabId, `${prefix}${text}`);
+                            });
+                            if (lines.length > 0) lastLineAt = Date.now();
+                            if (typeof data.last_seq === 'number') lastSeq = data.last_seq;
+                        }
+                    } catch (e) {
+                        // El servidor puede estar ocupado; no ensuciar la consola por esto
+                    } finally {
+                        fetching = false;
+                    }
+
+                    // Latido: si el backend no imprime nada en mucho tiempo, decirlo
+                    if (!closed && Date.now() - lastLineAt > heartbeatMs) {
+                        const secs = Math.round((Date.now() - startedAt) / 1000);
+                        log(tabId, `⏳ Sigo esperando al servidor... (${secs}s desde el inicio, sin novedades)`);
+                        lastLineAt = Date.now();
+                    }
+                }
+
+                function stop() {
+                    closed = true;
+                    if (timer) { clearInterval(timer); timer = null; }
+                }
+
+                // Última pasada para no perder las líneas finales del servidor
+                async function finish() {
+                    closed = true;
+                    if (timer) { clearInterval(timer); timer = null; }
+                    await tick();
+                }
+
+                // Marcar el punto de partida ANTES de lanzar la operación larga,
+                // para no volcar el histórico ni perderse las primeras líneas.
+                try {
+                    const resp = await fetch('/api/logs?since=-1');
+                    const data = await resp.json();
+                    if (data && typeof data.last_seq === 'number') lastSeq = data.last_seq;
+                } catch (e) { /* si falla, la primera pasada traerá el tail */ }
+
+                timer = setInterval(tick, POLL_MS);
+                return { finish, stop };
+            }
+
+            return { open, newRequestId };
+        })();
+
+        // ============================================================
+        // CARDS DE PROGRESO DE DESCARGA
+        // ============================================================
+        const DownloadCards = (() => {
+            const FADE_DELAY = 6000; // ms hasta que desaparece la card completada
+
+            function _area() { return document.getElementById('dl-cards-area'); }
+
+            function _card(id) { return document.getElementById(`dlcard-${id}`); }
+
+            function _shortLabel(urlOrTitle) {
+                if (!urlOrTitle) return 'Descarga';
+                // Si parece una URL, extraer el tramo final
+                try {
+                    const u = new URL(urlOrTitle);
+                    const v = u.searchParams.get('v');
+                    if (v) return `youtube.com/watch?v=${v}`;
+                    return u.hostname + u.pathname.slice(0, 30);
+                } catch (_) {
+                    // Es un título: truncar
+                    return urlOrTitle.length > 55 ? urlOrTitle.slice(0, 52) + '…' : urlOrTitle;
+                }
+            }
+
+            function create(taskId, label) {
+                const area = _area();
+                if (!area || _card(taskId)) return;
+                const el = document.createElement('div');
+                el.className = 'dl-card';
+                el.id = `dlcard-${taskId}`;
+                el.innerHTML = `
+                    <div class="dl-card-row">
+                        <span style="font-size:12px">📥</span>
+                        <span class="dl-card-title">${_shortLabel(label)}</span>
+                        <span class="dl-card-pct">0%</span>
+                    </div>
+                    <div class="dl-bar-wrap"><div class="dl-bar-fill"></div></div>
+                    <div class="dl-card-meta">Iniciando…</div>`;
+                area.insertBefore(el, area.firstChild);
+            }
+
+            function update(taskId, { progress = 0, downloaded = 0, total = 0, speed = 0, eta = 0, stage = '' } = {}) {
+                const el = _card(taskId);
+                if (!el) return;
+                el.querySelector('.dl-card-pct').textContent = `${progress}%`;
+                el.querySelector('.dl-bar-fill').style.width = `${progress}%`;
+                let meta = stage || '';
+                if (total > 0) {
+                    const dlMB = (downloaded / 1048576).toFixed(1);
+                    const totMB = (total / 1048576).toFixed(1);
+                    meta = `${dlMB}/${totMB} MB`;
+                    if (speed > 0) meta += ` · ${(speed / 1048576).toFixed(1)} MB/s`;
+                    if (eta > 0) {
+                        const m = Math.floor(eta / 60), s = eta % 60;
+                        meta += ` · ETA ${m}:${String(s).padStart(2,'0')}`;
+                    }
+                } else if (!meta && progress > 0) {
+                    meta = `Procesando… ${progress}%`;
+                }
+                el.querySelector('.dl-card-meta').textContent = meta;
+            }
+
+            function finish(taskId, success, message) {
+                const el = _card(taskId);
+                if (!el) return;
+                if (success) {
+                    el.classList.add('dl-done');
+                    el.querySelector('.dl-card-pct').textContent = '✓';
+                    el.querySelector('.dl-bar-fill').style.width = '100%';
+                } else {
+                    el.classList.add('dl-error');
+                    el.querySelector('.dl-card-pct').textContent = '✗';
+                }
+                el.querySelector('.dl-card-meta').textContent = message || (success ? 'Completado' : 'Error');
+                setTimeout(() => {
+                    el.classList.add('dl-fading');
+                    setTimeout(() => el.remove(), 500);
+                }, FADE_DELAY);
+            }
+
+            return { create, update, finish };
+        })();
         
         // ========== PESTAÑA: DESCARGAR ==========
         // ========== BUSCADOR YOUTUBE (PESTAÑA DESCARGAR) ==========
@@ -2016,27 +3858,60 @@
             ytSearchAbortController = new AbortController();
 
             if (spinner) spinner.classList.add('active');
+            if (box) {
+                box.innerHTML = '<div class="yt-search-loading"><div class="yt-search-loading-dot"></div>Buscando en YouTube…</div>';
+                box.classList.add('visible');
+            }
 
+            const timeoutId = setTimeout(() => {
+                try { ytSearchAbortController.abort(); } catch (e) {}
+            }, 12000);
+
+            const t0 = Date.now();
+            log('download', `🔎 Buscando en YouTube: "${query}"...`);
+            const rid = ServerLog.newRequestId('search');
+            const stream = await ServerLog.open('download', { heartbeatMs: 5000, rid });
             try {
-                const resp = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}&limit=8`, {
+                const resp = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}&limit=8&log_id=${rid}`, {
                     signal: ytSearchAbortController.signal
                 });
+                clearTimeout(timeoutId);
                 const data = await resp.json();
+                await stream.finish();
+                const secs = ((Date.now() - t0) / 1000).toFixed(1);
                 if (data.success) {
+                    log('download', `✅ ${(data.results || []).length} resultados en ${secs}s`);
                     renderYtSearchResults(data.results || []);
                 } else {
+                    log('download', `❌ Error tras ${secs}s: ${data.error || 'Error en la búsqueda'}`);
                     if (box) {
                         box.innerHTML = `<div class="yt-search-error">❌ ${escapeHtml(data.error || 'Error en la búsqueda')}</div>`;
                         box.classList.add('visible');
                     }
                 }
             } catch (e) {
-                if (e.name === 'AbortError') return;
+                clearTimeout(timeoutId);
+                const secs = ((Date.now() - t0) / 1000).toFixed(1);
+                if (e.name === 'AbortError') {
+                    // Puede ser una búsqueda cancelada por la siguiente tecla, o el timeout de 12s
+                    if (Date.now() - t0 >= 11000) {
+                        await stream.finish();
+                        log('download', `⏱️ Sin respuesta de YouTube tras ${secs}s (búsqueda cancelada)`);
+                        if (box) {
+                            box.innerHTML = `<div class="yt-search-error">⏱️ YouTube no respondió. Pega la URL directamente o inténtalo de nuevo.</div>`;
+                            box.classList.add('visible');
+                        }
+                    }
+                    return;
+                }
+                await stream.finish();
+                log('download', `❌ Error tras ${secs}s: ${e.message}`);
                 if (box) {
                     box.innerHTML = `<div class="yt-search-error">❌ ${escapeHtml(e.message)}</div>`;
                     box.classList.add('visible');
                 }
             } finally {
+                stream.stop();
                 if (spinner) spinner.classList.remove('active');
             }
         }
@@ -2145,7 +4020,7 @@
                 const data = await response.json();
                 if (data.success) {
                     log('download', '✅ Descarga iniciada. Monitoreando progreso...');
-                    monitorDirectDownload(data.task_id);
+                    monitorDirectDownload(data.task_id, url);
                 } else {
                     log('download', `❌ Error: ${data.error}`);
                 }
@@ -2153,7 +4028,7 @@
                 log('download', `❌ Error: ${error.message}`);
             }
         }
-        
+
         async function downloadQuick() {
             const url = document.getElementById('direct-url').value.trim();
             if (!url) {
@@ -2174,7 +4049,7 @@
                 const data = await response.json();
                 if (data.success) {
                     log('download', '✅ Descarga rápida iniciada. Monitoreando...');
-                    monitorDirectDownload(data.task_id);
+                    monitorDirectDownload(data.task_id, url);
                 } else {
                     log('download', `❌ Error: ${data.error}`);
                 }
@@ -2211,34 +4086,49 @@
             }
         }
         
-        function monitorDirectDownload(taskId) {
+        function monitorDirectDownload(taskId, label) {
+            DownloadCards.create(taskId, label || taskId);
+            FloatingLog.markBusy('download');
+            let lastLogCount = 0;
             const interval = setInterval(async () => {
                 try {
                     const response = await fetch(`/api/download/status/${taskId}`);
                     const data = await response.json();
-                    
-                    if (data.status && data.status.status === 'completed') {
-                        clearInterval(interval);
-                        log('download', '✅ Descarga completada');
-                    } else if (data.status === 'completed') {
-                        clearInterval(interval);
-                        log('download', '✅ Descarga completada');
-                    } else if (data.status && data.status.status === 'error') {
-                        clearInterval(interval);
-                        log('download', `❌ Error: ${data.status.error}`);
-                        if (data.status.error_detail) log('download', `📋 Detalle:\n${data.status.error_detail}`);
-                    } else if (data.status === 'error') {
-                        clearInterval(interval);
-                        log('download', `❌ Error: ${data.error}`);
-                        if (data.error_detail) log('download', `📋 Detalle:\n${data.error_detail}`);
-                    } else if (data.logs) {
-                        const sectionEl = document.querySelector('#floating-log-body .log-section[data-log-section="download"]');
-                        const existing = sectionEl ? sectionEl.textContent : '';
-                        data.logs.forEach(logMsg => {
-                            if (!existing.includes(logMsg)) {
-                                log('download', logMsg);
-                            }
+
+                    // Actualizar card con progreso si la API devuelve el objeto completo
+                    if (data.status && typeof data.status === 'object') {
+                        const s = data.status;
+                        DownloadCards.update(taskId, {
+                            progress: s.progress || 0,
+                            downloaded: s.downloaded_bytes || 0,
+                            total: s.total_bytes || 0,
+                            speed: s.speed || 0,
+                            eta: s.eta || 0
                         });
+                    }
+
+                    // Volcar logs nuevos del backend
+                    if (Array.isArray(data.logs) && data.logs.length > lastLogCount) {
+                        for (let i = lastLogCount; i < data.logs.length; i++) {
+                            log('download', data.logs[i]);
+                        }
+                        lastLogCount = data.logs.length;
+                    }
+
+                    const st = (data.status && typeof data.status === 'object') ? data.status.status : data.status;
+                    if (st === 'completed') {
+                        clearInterval(interval);
+                        FloatingLog.markIdle('download');
+                        DownloadCards.finish(taskId, true, 'Completado');
+                        log('download', '✅ Descarga completada');
+                    } else if (st === 'error') {
+                        clearInterval(interval);
+                        FloatingLog.markIdle('download');
+                        const errMsg = (data.status && data.status.error) || data.error || 'Error desconocido';
+                        DownloadCards.finish(taskId, false, errMsg);
+                        log('download', `❌ Error: ${errMsg}`);
+                        const detail = (data.status && data.status.error_detail) || data.error_detail;
+                        if (detail) log('download', `📋 Detalle:\n${detail}`);
                     }
                 } catch (error) {
                     console.error('Error monitoreando descarga:', error);
@@ -2516,7 +4406,7 @@
                         ? `<img src="${thumbnailUrl}" alt="Album Art" class="album-art" onerror="this.parentElement.innerHTML='<div style=\'width:60px;height:60px;background:#f0f0f0;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#999;font-size:20px;\'>🎵</div>'">`
                         : '<div style="width:60px;height:60px;background:#f0f0f0;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#999;font-size:20px;margin:0 auto;">🎵</div>';
                     const vol = song.volume_lufs != null ? Number(song.volume_lufs) : null;
-                    const volHtml = vol != null ? `${vol.toFixed(1)} LUFS` : '—';
+                    const volHtml = formatVolumeBadge(vol);
                     const isChecked = selectedVideoIds.has(videoId);
                     html += `<tr data-video-id="${videoId}" class="db-row ${isChecked ? 'row-selected' : ''}">
                         <td class="checkbox-cell"><input type="checkbox" class="db-row-checkbox" data-video-id="${videoId}" ${isChecked ? 'checked' : ''} onclick="toggleDatabaseRowSelection('${videoId.replace(/'/g, "\\'")}')"></td>
@@ -2626,9 +4516,7 @@
                     ? `<img src="${thumbnailUrl}" alt="Album Art" class="album-art" onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'width:60px;height:60px;background:#f0f0f0;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#999;font-size:20px;\'>🎵</div>'">`
                     : '<div style="width:60px;height:60px;background:#f0f0f0;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#999;font-size:20px;margin:0 auto;">🎵</div>';
                 const vol = song.volume_lufs != null ? Number(song.volume_lufs) : null;
-                const volHtml = vol != null
-                    ? (vol < -26 ? `<span class="volume-badge low" title="Volumen bajo">${vol.toFixed(1)} LUFS</span>` : `<span>${vol.toFixed(1)} LUFS</span>`)
-                    : '<span class="volume-unknown" title="No medido">—</span>';
+                const volHtml = formatVolumeBadge(vol);
                 const hasWaveform = song.waveform_data && Array.isArray(song.waveform_data) && song.waveform_data.length > 0;
                 const waveformHtml = hasWaveform
                     ? `<canvas class="waveform-canvas" data-video-id="${videoId}" width="140" height="28" title="Forma de onda"></canvas>`
@@ -2828,6 +4716,7 @@
                     <div class="context-menu-item" onclick="adjustVolume(-5)">🔉 Bajar volumen (-5 dB)</div>
                     <div class="context-menu-item" onclick="adjustVolume(-10)">🔉 Bajar volumen (-10 dB)</div>
                     <div class="context-menu-item" onclick="generateWaveformFromContext()">〰️ Generar waveform</div>
+                    <div class="context-menu-item" onclick="fetchAlbumArtFromContext()">🖼️ Buscar album art</div>
                     <div class="context-menu-item" onclick="reclassifyFromContext()">🏷️ Volver a clasificar</div>
                     <div class="context-menu-item" onclick="redownloadSong()">🔄 Volver a descargar (rápido)</div>
                     <div class="context-menu-item" onclick="redownloadFullFromContext()">🔄 Volver a descargar (proceso completo)</div>
@@ -3057,7 +4946,40 @@
             hideContextMenu();
             for (const videoId of ids) await generateWaveformForSong(videoId, null);
         }
-        
+
+        async function fetchAlbumArtFromContext() {
+            const ids = getTargetVideoIdsForAction();
+            if (ids.length === 0) {
+                alert('Selecciona al menos una canción (o haz clic derecho en una fila).');
+                return;
+            }
+            hideContextMenu();
+            if (window.FloatingLog) { FloatingLog.setVisible(true); FloatingLog.setActiveTab('database'); }
+            log('database', `🖼️ Buscando album art para ${ids.length} canción(es)...`);
+            let ok = 0, fail = 0;
+            for (const videoId of ids) {
+                try {
+                    const response = await fetch(
+                        `/api/database/song/${encodeURIComponent(videoId)}/albumart`,
+                        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }
+                    );
+                    const data = await response.json();
+                    if (data.success) {
+                        log('database', `   ✅ ${data.title || videoId}: ${data.source || 'encontrado'}`);
+                        ok++;
+                    } else {
+                        log('database', `   ⚠️ ${videoId}: ${data.error || 'no encontrado'}`);
+                        fail++;
+                    }
+                } catch (e) {
+                    log('database', `   ❌ ${videoId}: ${e.message}`);
+                    fail++;
+                }
+            }
+            log('database', `🖼️ Album art: ${ok} encontrados, ${fail} sin resultado.`);
+            if (ok > 0) loadDatabase();
+        }
+
         async function generateMissingWaveforms() {
             const btn = document.getElementById('btn-generate-missing-waveforms');
             if (btn) { btn.disabled = true; btn.textContent = '〰️ Generando…'; }
@@ -3085,7 +5007,49 @@
             }
             if (btn) { btn.disabled = false; btn.textContent = '〰️ Generar waveforms faltantes'; }
         }
-        
+
+        async function fetchMissingAlbumArt() {
+            const btn = document.getElementById('btn-fetch-missing-albumart');
+            if (btn) { btn.disabled = true; btn.textContent = '🖼️ Buscando…'; }
+            clearLog('database');
+            log('database', '🖼️ Buscando album art para canciones sin portada...');
+            log('database', '   Prioridad: 1) YouTube directo → 2) Búsqueda YouTube → 3) Búsqueda online');
+            if (window.FloatingLog) { FloatingLog.setVisible(true); FloatingLog.setActiveTab('database'); }
+            let totalFetched = 0;
+            let totalNotFound = 0;
+            try {
+                for (;;) {
+                    const response = await fetch('/api/database/fetch-missing-albumart', { method: 'POST' });
+                    const data = await response.json();
+                    if (!data.success) {
+                        log('database', '❌ Error: ' + (data.error || 'desconocido'));
+                        break;
+                    }
+                    const fetched = data.fetched || 0;
+                    const notFound = data.not_found || 0;
+                    const processed = data.processed || 0;
+                    const remaining = data.remaining || 0;
+                    totalFetched += fetched;
+                    totalNotFound += notFound;
+                    if (processed > 0) {
+                        log('database', `   ✓ Lote: ${fetched} encontrados, ${notFound} sin resultado. Faltan: ${remaining}`);
+                    }
+                    if (processed === 0 || remaining === 0) break;
+                }
+                if (totalFetched > 0) {
+                    log('database', `✅ Listo. Album art encontrado: ${totalFetched}. Sin resultado: ${totalNotFound}`);
+                    loadDatabase();
+                } else {
+                    log('database', totalNotFound > 0
+                        ? `⚠️ No se encontró album art para ${totalNotFound} canciones.`
+                        : '✅ Todas las canciones ya tienen album art.');
+                }
+            } catch (e) {
+                log('database', '❌ Error: ' + e.message);
+            }
+            if (btn) { btn.disabled = false; btn.textContent = '🖼️ Album art faltante'; }
+        }
+
         async function reclassifyFromContext() {
             const ids = getTargetVideoIdsForAction();
             if (ids.length === 0) {
@@ -3354,28 +5318,77 @@
         }
         
         // ========== PESTAÑA: PLAYLIST ==========
-        async function loadPlaylist() {
+        // Carga de playlist en curso (para que una nueva cancele la anterior y no
+        // se dupliquen las líneas del servidor en la consola)
+        let playlistInFlight = null;
+        let playlistGeneration = 0;
+
+        async function loadPlaylist(options) {
+            const opts = options || {};
             const playlistUrl = document.getElementById('playlist-url').value;
             const limit = document.getElementById('limit').value;
             const hideIgnored = document.getElementById('hide-ignored').checked;
-            
+
+            // Una nueva carga sustituye a la que hubiera en curso
+            const myGen = ++playlistGeneration;
+            if (playlistInFlight) {
+                try { playlistInFlight.controller.abort(); } catch (e) {}
+                try { playlistInFlight.stream.stop(); } catch (e) {}
+                playlistInFlight = null;
+            }
+            const controller = new AbortController();
+
             clearLog('playlist');
+            // Sólo abrir la consola si lo pidió el usuario (no en la carga automática inicial)
+            if (opts.showConsole && window.FloatingLog) {
+                FloatingLog.setVisible(true);
+                FloatingLog.setActiveTab('playlist');
+            }
             log('playlist', `🔄 Cargando playlist...`);
             log('playlist', `   📋 URL: ${playlistUrl}`);
             log('playlist', `   🎵 Buscando ${limit} canciones${hideIgnored ? ' (ocultando descargadas/ignoradas)' : ''}...`);
-            
+            log('playlist', `   ⚙️ = línea del servidor (progreso real del backend)`);
+
+            const t0 = Date.now();
+            const rid = ServerLog.newRequestId('playlist');
+            const stream = await ServerLog.open('playlist', { rid });
+            playlistInFlight = { controller, stream };
             try {
-                const response = await fetch(`/api/playlist?url=${encodeURIComponent(playlistUrl)}&limit=${limit}&hide_ignored=${hideIgnored}`);
+                const response = await fetch(
+                    `/api/playlist?url=${encodeURIComponent(playlistUrl)}&limit=${limit}&hide_ignored=${hideIgnored}&log_id=${rid}`,
+                    { signal: controller.signal }
+                );
                 const data = await response.json();
-                
+                await stream.finish();
+
+                // Si mientras tanto se lanzó otra carga, esta respuesta ya no vale
+                if (myGen !== playlistGeneration) return;
+
+                const secs = ((Date.now() - t0) / 1000).toFixed(1);
                 if (data.success) {
                     renderPlaylist(data.videos);
-                    log('playlist', `✅ Playlist cargada: ${data.count} canciones mostradas`);
+                    log('playlist', `✅ Playlist cargada: ${data.count} canciones mostradas en ${secs}s`);
+                    if (typeof data.skipped === 'number' && data.skipped > 0) {
+                        log('playlist', `   ⏭️ ${data.skipped} omitidas (ya descargadas o ignoradas), ${data.batches} lote(s) procesado(s)`);
+                    }
+                    if (data.timed_out) {
+                        log('playlist', `   ⚠️ Resultado PARCIAL: el servidor agotó su tiempo máximo. Prueba con menos canciones o sube PLAYLIST_TIMEOUT en el .env`);
+                    }
                 } else {
-                    log('playlist', `❌ Error: ${data.error}`);
+                    log('playlist', `❌ Error tras ${secs}s: ${data.error}`);
                 }
             } catch (error) {
-                log('playlist', `❌ Error: ${error.message}`);
+                if (error.name === 'AbortError') {
+                    // Sustituida por otra carga: la nueva ya ha limpiado la consola
+                    return;
+                }
+                await stream.finish();
+                log('playlist', `❌ Error tras ${((Date.now() - t0) / 1000).toFixed(1)}s: ${error.message}`);
+            } finally {
+                stream.stop();
+                if (playlistInFlight && playlistInFlight.controller === controller) {
+                    playlistInFlight = null;
+                }
             }
         }
         
@@ -3551,9 +5564,11 @@
         }
         
         function monitorDownload(videoId) {
+            FloatingLog.markBusy('playlist');
             const songEl = document.getElementById(`song-${videoId}`);
             if (!songEl) {
                 console.error(`No se encontró el elemento song-${videoId}`);
+                FloatingLog.markIdle('playlist');
                 return;
             }
             
@@ -3647,6 +5662,7 @@
 
                     if (status === 'completed') {
                         clearInterval(interval);
+                        FloatingLog.markIdle('playlist');
                         if (progressBar) {
                             progressBar.style.width = '100%';
                             progressBar.textContent = '100%';
@@ -3657,6 +5673,7 @@
                         }, 1000);
                     } else if (status === 'error') {
                         clearInterval(interval);
+                        FloatingLog.markIdle('playlist');
                         log('playlist', `❌ Error: ${data.status.error || 'Error desconocido'}`);
                         if (data.status && data.status.error_detail) {
                             log('playlist', `📋 Detalle:\n${data.status.error_detail}`);
@@ -3718,6 +5735,7 @@
         }
         
         function monitorImport(taskId) {
+            FloatingLog.markBusy('import');
             // Índice de los logs ya pintados (offset incremental).
             // Antes se hacía dedup por textContent.includes() que era O(n²) y
             // rompía con cualquier mensaje duplicado o que fuera substring de otro.
@@ -3740,9 +5758,11 @@
 
                     if (data.status === 'completed') {
                         clearInterval(interval);
+                        FloatingLog.markIdle('import');
                         log('import', '✅ Importación completada');
                     } else if (data.status === 'error') {
                         clearInterval(interval);
+                        FloatingLog.markIdle('import');
                         log('import', `❌ Error: ${data.error}`);
                     }
                 } catch (error) {
@@ -4633,12 +6653,12 @@
 
             function init() {
                 panelEl   = document.getElementById('radio-player');
-                audioEl   = document.getElementById('radio-audio');
+                audioEl   = document.getElementById('radio-mini-audio');
                 toggleEl  = document.getElementById('radio-toggle');
                 titleEl   = document.getElementById('radio-track-title');
                 artistEl  = document.getElementById('radio-track-artist');
                 metaEl    = document.getElementById('radio-track-meta');
-                statusEl  = document.getElementById('radio-status');
+                statusEl  = document.getElementById('radio-mini-status');
                 btnPlay   = document.getElementById('btn-radio-play');
                 btnNext   = document.getElementById('btn-radio-next');
                 btnMin    = document.getElementById('btn-radio-minimize');

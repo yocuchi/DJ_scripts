@@ -72,7 +72,7 @@ from download_youtube import (
     get_genre_from_description_deep, get_genre_from_lastfm, get_genre_from_musicbrainz,
     get_genre_from_web_search, get_genre_from_hashtags, get_genre_from_spotify_search,
     read_id3_tags, search_youtube_music_url, process_imported_mp3, get_decade_from_year,
-    detect_genre_from_audio_file
+    detect_genre_from_audio_file, stable_imported_video_id
 )
 from download_quick import download_quick
 from query_db import show_statistics, search_songs
@@ -3474,9 +3474,12 @@ class MusicDownloaderGUI:
                         
                         # Detectar género si no existe
                         if not genre and artist:
-                            # Generar un video_id temporal para usar la caché
-                            file_hash = abs(hash(str(mp3_file)))
-                            temp_video_id = f"imported_{file_hash}"
+                            # Generar un video_id temporal para usar la caché.
+                            # Debe ser determinista: con abs(hash(...)) la clave
+                            # cambiaba en cada ejecución, la caché nunca acertaba
+                            # y el género se volvía a detectar online (pudiendo
+                            # salir distinto y recolocar el archivo otra vez).
+                            temp_video_id = stable_imported_video_id(mp3_file, MUSIC_FOLDER)
                             
                             # Verificar caché de género primero
                             cached_genre = db.get_cached_genre(temp_video_id)

@@ -76,6 +76,13 @@ DB_PATH = os.getenv('DB_PATH', None)
 db = MusicDatabase(DB_PATH)
 MUSIC_FOLDER = os.getenv('MUSIC_FOLDER', os.path.expanduser('~/Music'))
 
+# Tiempo máximo (segundos) que /api/playlist puede tardar antes de devolver un
+# resultado parcial. Evita que la interfaz se quede colgada indefinidamente.
+try:
+    PLAYLIST_TIMEOUT = int(os.getenv('PLAYLIST_TIMEOUT', '180'))
+except (TypeError, ValueError):
+    PLAYLIST_TIMEOUT = 180
+
 # Crear aplicación Flask
 app = Flask(__name__)
 CORS(app)
@@ -90,11 +97,172 @@ class StatusPollingFilter(logging.Filter):
         message = str(record.getMessage())
         if '/api/download/status/' in message:
             return False
+        # /api/logs se consulta cada segundo desde la consola web: no ensuciar
+        # (y además evitaría un bucle de ruido, porque su propio log se capturaría)
+        if '/api/logs' in message:
+            return False
         return True
 
 # Aplicar filtro al logger de Werkzeug
 werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.addFilter(StatusPollingFilter())
+
+# ============================================================================
+# Captura de la salida del servidor para mostrarla en la consola de la web
+# ----------------------------------------------------------------------------
+# Todo lo que el backend imprime con print() se duplica en un buffer circular
+# que el navegador consulta vía GET /api/logs. Así la consola flotante muestra
+# el progreso real del servidor y se distingue "está trabajando" de "colgado".
+# ============================================================================
+from collections import deque
+
+LOG_CHANNELS = ('download', 'database', 'playlist', 'import', 'testing', 'config', 'server')
+_log_buffer = deque(maxlen=4000)
+_log_lock = threading.Lock()
+_log_seq = 0
+_log_ctx = threading.local()
+
+
+def set_log_channel(channel, request_id=None):
+    """Asocia el hilo actual a una pestaña de la consola web (y a una petición)."""
+    _log_ctx.channel = channel if channel in LOG_CHANNELS else 'server'
+    _log_ctx.rid = request_id
+
+
+# Línea de acceso de Werkzeug: '... "GET /api/x HTTP/1.1" 200 -'. Es ruido en la
+# consola web (el navegador ya sabe qué ha pedido), así que no se guarda.
+_ACCESS_LOG_RE = re.compile(r'"(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH) .*HTTP/[\d.]+"\s+\d{3}')
+
+
+def _push_log_line(text):
+    """Añade una línea al buffer que consume la consola web."""
+    global _log_seq
+    text = text.rstrip('\r\n')
+    if not text.strip():
+        return
+    if _ACCESS_LOG_RE.search(text):
+        return
+    with _log_lock:
+        _log_seq += 1
+        _log_buffer.append({
+            'seq': _log_seq,
+            'ts': time.strftime('%H:%M:%S'),
+            'channel': getattr(_log_ctx, 'channel', 'server'),
+            'rid': getattr(_log_ctx, 'rid', None),
+            'text': text[:2000],
+        })
+
+
+class _TeeStream:
+    """Escribe en la salida real y, además, en el buffer de la consola web."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self._partial = {}
+
+    def write(self, data):
+        try:
+            if self._stream is not None:
+                self._stream.write(data)
+        except Exception:
+            pass
+        try:
+            # Acumular por hilo hasta tener líneas completas
+            tid = threading.get_ident()
+            buf = self._partial.get(tid, '') + str(data)
+            parts = buf.split('\n')
+            self._partial[tid] = parts.pop()
+            for line in parts:
+                _push_log_line(line)
+        except Exception:
+            pass
+        return len(data) if data else 0
+
+    def flush(self):
+        try:
+            if self._stream is not None:
+                self._stream.flush()
+        except Exception:
+            pass
+
+    def isatty(self):
+        try:
+            return bool(self._stream) and self._stream.isatty()
+        except Exception:
+            return False
+
+    def __getattr__(self, name):
+        return getattr(self.__dict__.get('_stream'), name)
+
+
+if not isinstance(sys.stdout, _TeeStream):
+    sys.stdout = _TeeStream(sys.stdout)
+if not isinstance(sys.stderr, _TeeStream):
+    sys.stderr = _TeeStream(sys.stderr)
+
+
+# Cada endpoint escribe en la pestaña de la consola web que le corresponde
+_LOG_CHANNEL_BY_PATH = (
+    ('/api/playlist', 'playlist'),
+    ('/api/youtube/search', 'download'),
+    ('/api/download', 'download'),
+    ('/api/import', 'import'),
+    ('/api/songs', 'database'),
+    ('/api/database', 'database'),
+    ('/api/test', 'testing'),
+    ('/api/config', 'config'),
+    ('/api/cookies', 'config'),
+)
+
+
+@app.before_request
+def _tag_log_channel():
+    path = request.path or ''
+    # log_id (opcional) lo manda el cliente para poder seguir SOLO esta petición
+    rid = request.args.get('log_id') or None
+    for prefix, channel in _LOG_CHANNEL_BY_PATH:
+        if path.startswith(prefix):
+            set_log_channel(channel, rid)
+            return
+    set_log_channel('server', rid)
+
+
+@app.route('/api/logs', methods=['GET'])
+def get_server_logs():
+    """Devuelve las líneas de log del servidor posteriores a `since`.
+
+    Query params:
+      since:   último `seq` recibido (omitirlo devuelve las últimas 150 líneas;
+               -1 no devuelve líneas, sólo el `last_seq` actual, útil para que
+               el cliente marque el punto de partida antes de una operación)
+      channel: lista separada por comas de canales a filtrar (ej: playlist,server)
+      rid:     devolver sólo las líneas de la petición con ese `log_id` (tiene
+               prioridad sobre `channel`; así una carga cancelada no mezcla su
+               salida con la nueva)
+    """
+    since = request.args.get('since', type=int)
+    channel = request.args.get('channel')
+    rid = request.args.get('rid')
+
+    with _log_lock:
+        items = list(_log_buffer)
+        last_seq = _log_seq
+
+    if since == -1:
+        items = []
+    elif since is None:
+        items = items[-150:]
+    else:
+        items = [item for item in items if item['seq'] > since]
+
+    if rid:
+        items = [item for item in items if item.get('rid') == rid]
+    elif channel:
+        wanted = {c.strip() for c in channel.split(',') if c.strip()}
+        items = [item for item in items if item['channel'] in wanted]
+
+    # last_seq es global (no filtrado) para que el cliente avance siempre
+    return jsonify({'success': True, 'logs': items, 'last_seq': last_seq})
 
 # Manejador de errores global para asegurar respuestas JSON
 @app.errorhandler(404)
@@ -145,6 +313,109 @@ def _normalize_file_path_from_db(file_path_raw: str):
     return path_obj
 
 
+def _fetch_albumart_for_song(song: dict):
+    """
+    Busca album art para una canción siguiendo esta prioridad:
+    1. APIC embebida en el MP3
+    2. Thumbnail directo de YouTube (si video_id es ID válido de YT)
+    3. iTunes Search API — portada cuadrada 600x600, mayor calidad
+    4. Búsqueda en YouTube via yt-dlp (si hay ID en el título, lo usa directamente;
+       si no, busca por artista+título)
+    Devuelve la URL del thumbnail o None si no se encuentra.
+    """
+    import urllib.request
+    import urllib.parse
+
+    video_id = (song.get('video_id') or '').strip()
+    title = (song.get('title') or '').strip()
+    artist = (song.get('artist') or '').strip()
+
+    # Título limpio (sin el [video_id] del nombre de archivo)
+    clean_title = re.sub(r'\[[A-Za-z0-9_-]{11}\]', '', title).strip(' -–')
+
+    # 1. APIC embebida en el MP3
+    file_path_raw = (song.get('file_path') or '').strip()
+    if file_path_raw:
+        path_obj = _normalize_file_path_from_db(file_path_raw)
+        if path_obj and path_obj.exists() and path_obj.is_file():
+            try:
+                from mutagen.id3 import ID3
+                from mutagen.mp3 import MP3 as _MP3
+                _audio = _MP3(str(path_obj), ID3=ID3)
+                if any(k.startswith('APIC') for k in _audio.keys()):
+                    return f'/api/database/song/{video_id}/cover'
+            except Exception:
+                pass
+
+    # 2. Thumbnail directo de YouTube para IDs válidos (11 caracteres alfanuméricos)
+    if re.match(r'^[A-Za-z0-9_-]{11}$', video_id):
+        return f'https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg'
+
+    # 3. iTunes Search API — portadas cuadradas de alta calidad (600x600)
+    # Va antes del thumbnail de YouTube para importadas porque el video puede estar borrado
+    if artist or clean_title:
+        try:
+            # Evitar duplicar el artista si el título ya empieza por él ("Yves Larock - Rise Up…")
+            search_title = clean_title
+            if artist and search_title.lower().startswith(artist.lower()):
+                search_title = search_title[len(artist):].lstrip(' \t-–').strip()
+            term = f'{artist} {search_title}'.strip() if search_title else artist
+            search_url = (
+                f'https://itunes.apple.com/search?term={urllib.parse.quote(term)}'
+                f'&media=music&limit=5'
+            )
+            req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+                for r in (data.get('results') or []):
+                    art = (r.get('artworkUrl100') or '').replace('100x100bb', '600x600bb')
+                    if art:
+                        return art
+        except Exception:
+            pass
+
+    # 4. ID de YouTube extraído del título — verificar que la imagen existe antes de devolverla
+    yt_id_in_title = re.search(r'\[([A-Za-z0-9_-]{11})\]', title)
+    if yt_id_in_title:
+        yt_id = yt_id_in_title.group(1)
+        for res in ('maxresdefault', 'hqdefault', 'mqdefault'):
+            yt_url = f'https://i.ytimg.com/vi/{yt_id}/{res}.jpg'
+            try:
+                req = urllib.request.Request(yt_url, headers={'User-Agent': 'Mozilla/5.0'})
+                req.get_method = lambda: 'HEAD'
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    if r.status == 200:
+                        return yt_url
+            except Exception:
+                pass
+
+    # 5. Búsqueda en YouTube via yt-dlp (último recurso)
+    if artist or clean_title:
+        try:
+            import yt_dlp as _yt_dlp
+            search_query = f'{artist} - {clean_title}' if artist and clean_title else (artist or clean_title)
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': True,
+                'skip_download': True,
+                'socket_timeout': 10,
+                'ignoreerrors': True,
+            }
+            apply_cookies_to_opts(ydl_opts)
+            with _yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(f'ytsearch1:{search_query}', download=False)
+                entries = (info or {}).get('entries') or []
+                if entries and entries[0]:
+                    vid = entries[0].get('id')
+                    if vid and re.match(r'^[A-Za-z0-9_-]{11}$', vid):
+                        return f'https://i.ytimg.com/vi/{vid}/hqdefault.jpg'
+        except Exception:
+            pass
+
+    return None
+
+
 @app.route('/')
 def index():
     """Página principal."""
@@ -162,7 +433,9 @@ def get_playlist():
     print(f"[{time.strftime('%H:%M:%S')}] 🎵 GET /api/playlist - Iniciando carga de playlist")
     print(f"    URL: {playlist_url}")
     print(f"    Límite: {limit}, Ocultar ignoradas: {hide_ignored}")
-    
+    print(f"    Cookies configuradas: {'sí' if has_cookies_configured() else 'NO (la playlist devolverá 0 canciones)'}")
+    print(f"    Tiempo máximo de la petición: {PLAYLIST_TIMEOUT}s")
+
     try:
         videos_data = []
         batch_size = limit * 5  # Tamaño de cada lote a obtener
@@ -170,38 +443,57 @@ def get_playlist():
         max_batches = 10  # Máximo de lotes a intentar (para evitar bucles infinitos)
         batch_count = 0
         skipped_count = 0  # Contador de canciones omitidas
-        
+        timed_out = False  # Se agotó PLAYLIST_TIMEOUT antes de completar
+
         print(f"[{time.strftime('%H:%M:%S')}] 🔄 Procesando playlist en lotes hasta encontrar {limit} videos válidos...")
-        
+
         # Si hide_ignored está activado, obtener videos en lotes hasta tener suficientes válidos
         # Si no está activado, solo obtener un lote
         while len(videos_data) < limit and batch_count < max_batches:
+            if time.time() - start_time > PLAYLIST_TIMEOUT:
+                timed_out = True
+                print(f"[{time.strftime('%H:%M:%S')}] ⏱️  Tiempo máximo agotado ({PLAYLIST_TIMEOUT}s): devolviendo lo encontrado hasta ahora")
+                break
+
             batch_count += 1
             current_batch_size = batch_size if hide_ignored else limit
-            
-            print(f"[{time.strftime('%H:%M:%S')}] 🔍 Lote {batch_count}: Obteniendo videos desde índice {start_index} (hasta {start_index + current_batch_size - 1})...")
+
+            print(f"[{time.strftime('%H:%M:%S')}] 🔍 Lote {batch_count}/{max_batches}: Obteniendo videos desde índice {start_index} (hasta {start_index + current_batch_size - 1})...")
+            batch_start = time.time()
             liked_videos = get_liked_videos_from_url(playlist_url, limit=current_batch_size, start_index=start_index)
-            
+            batch_elapsed = time.time() - batch_start
+
             if not liked_videos:
-                print(f"    ⚠️  No se obtuvieron más videos de la playlist")
+                print(f"    ⚠️  No se obtuvieron más videos de la playlist (lote vacío tras {batch_elapsed:.1f}s)")
                 break
-            
-            print(f"    ✅ Obtenidos {len(liked_videos)} videos en este lote")
-            
+
+            print(f"    ✅ Obtenidos {len(liked_videos)} videos en este lote ({batch_elapsed:.1f}s)")
+
             # Procesar los videos del lote actual
             for idx, video in enumerate(liked_videos, 1):
                 # Si ya tenemos suficientes videos y hide_ignored está activado, parar
                 if hide_ignored and len(videos_data) >= limit:
                     print(f"    ✅ Ya se encontraron {limit} videos válidos, deteniendo procesamiento")
                     break
-                
+
+                if time.time() - start_time > PLAYLIST_TIMEOUT:
+                    timed_out = True
+                    print(f"[{time.strftime('%H:%M:%S')}] ⏱️  Tiempo máximo agotado ({PLAYLIST_TIMEOUT}s) en el video {idx}/{len(liked_videos)} del lote {batch_count}")
+                    break
+
                 video_id = video['id']
                 url = video['url']
                 title = video['title']
                 
                 # PRIMERO: Verificar si está rechazada o descargada (verificación rápida)
                 is_rejected = is_rejected_video(video_id)
-                existing_song = check_file_exists(video_id=video_id)
+
+                # Buscar en BD por video_id directamente (sin verificar que el archivo exista
+                # en disco: la BD es la fuente de verdad para el filtrado de playlist; el check
+                # de archivo fallaría con rutas de Windows sincronizadas via OneDrive o si el
+                # usuario renombró/movió los archivos).
+                existing_song = db.get_song_by_video_id(video_id)
+                matched_by = 'video_id' if existing_song else None
 
                 # Si no la encuentra por video_id, intentar por artista+título.
                 # Esto permite reconocer canciones importadas manualmente (que se
@@ -219,56 +511,67 @@ def get_playlist():
                         except Exception:
                             cand_title = title
                     if cand_artist and cand_title:
-                        existing_song = check_file_exists(artist=cand_artist, title=cand_title)
-                
+                        # Buscar en BD sin verificar existencia del archivo en disco
+                        found = db.find_song(artist=cand_artist, title=cand_title)
+                        existing_song = found[0] if found else None
+                        if existing_song:
+                            matched_by = f"artista+título: {cand_artist} / {cand_title}"
+
                 if hide_ignored and (is_rejected or existing_song):
                     skipped_count += 1
-                    reason = "ya descargada" if existing_song else "ignorada"
-                    print(f"[{time.strftime('%H:%M:%S')}] ⏭️  [{skipped_count}] Omitida ({reason}): {title[:70]}")
+                    if existing_song:
+                        reason = f"ya descargada [{matched_by}]"
+                    else:
+                        reason = "ignorada"
+                    print(f"[{time.strftime('%H:%M:%S')}] ⏭️  [{skipped_count}] Omitida ({reason}): {(title or '')[:70]}")
                     continue
-                
-                print(f"[{time.strftime('%H:%M:%S')}]   [{idx}/{len(liked_videos)}] Procesando: {title[:70]}")
-                
-                # Obtener información del video desde caché o API
-                video_info_start = time.time()
+
+                print(f"[{time.strftime('%H:%M:%S')}]   [{idx}/{len(liked_videos)}] Procesando ({time.time() - start_time:.0f}s transcurridos): {(title or '')[:70]}")
+
+                # Info del video SOLO si ya está en caché. Aquí no se consulta a
+                # YouTube: la petición por canción tarda 18-50s (la extracción con
+                # cookies falla y sólo responde el reintento sin cookies), así que
+                # listar 20 canciones nuevas costaba minutos y parecía un cuelgue.
+                # Para pintar la lista basta con el título de la entrada plana y la
+                # miniatura estándar de YouTube; la info completa se obtiene al
+                # descargar, que es cuando de verdad hace falta.
                 video_info = db.get_cached_video_info(video_id)
-                if not video_info:
-                    try:
-                        video_info = get_video_info(url)
-                        video_info_elapsed = time.time() - video_info_start
-                        if video_info:
-                            db.set_cached_video_info(video_id, video_info)
-                            print(f"      → ✅ Info obtenida desde API ({video_info_elapsed:.2f}s)")
-                        else:
-                            print(f"      → ⚠️  No se obtuvo información del video")
-                    except Exception as e:
-                        print(f"      → ⚠️  Error obteniendo info: {e}")
-                        video_info = {}
-                else:
+                if video_info:
                     print(f"      → ✅ Info desde caché")
-                
-                # Obtener metadatos desde caché o extraer
+
+                # Metadatos: de caché si existen; si no, del título (sin red).
+                # No se cachean los extraídos aquí: al no tener la descripción del
+                # vídeo son de peor calidad que los que calcula la descarga, y
+                # cachearlos empeoraría los tags del MP3.
                 metadata = db.get_cached_metadata(video_id)
-                if not metadata and video_info:
+                if not metadata:
                     try:
-                        title_from_info = video_info.get('title', title)
-                        description = video_info.get('description', '')
+                        title_from_info = video_info.get('title', title) if video_info else title
+                        description = video_info.get('description', '') if video_info else ''
                         metadata = extract_metadata_from_title(title_from_info, description, video_info)
-                        if metadata:
-                            db.set_cached_metadata(video_id, metadata)
                     except Exception as e:
                         print(f"      → ⚠️  Error extrayendo metadatos: {e}")
                         metadata = {}
-                
+
                 # Asegurar que metadata nunca sea None
                 if metadata is None:
                     metadata = {}
-                
+
+                # Miniatura: de la info cacheada o construida a partir del id
+                thumbnail = (video_info or {}).get('thumbnail') or ''
+                if not thumbnail and re.match(r'^[A-Za-z0-9_-]{11}$', video_id or ''):
+                    thumbnail = f'https://i.ytimg.com/vi/{video_id}/hqdefault.jpg'
+
                 # Obtener género desde caché o detectar
+                # (metadata puede traer la clave con valor None: de ahí el `or`)
                 genre = db.get_cached_genre(video_id)
                 if not genre:
-                    genre = metadata.get('genre', 'Sin Clasificar') if metadata else 'Sin Clasificar'
-                
+                    genre = (metadata.get('genre') if metadata else None) or 'Sin Clasificar'
+
+                # Artista: metadatos > canal de la entrada plana > desconocido
+                artist = (metadata.get('artist') if metadata else None) \
+                         or video.get('artist') or 'Desconocido'
+
                 # Obtener información de progreso si está descargando
                 is_downloading = video_id in download_status and download_status[video_id].get('status') == 'downloading'
                 progress = 0
@@ -279,9 +582,9 @@ def get_playlist():
                     'id': video_id,
                     'title': title,
                     'url': url,
-                    'thumbnail': video_info.get('thumbnail', '') if video_info else '',
+                    'thumbnail': thumbnail,
                     'genre': genre,
-                    'artist': metadata.get('artist', 'Desconocido') if metadata else 'Desconocido',
+                    'artist': artist,
                     'is_rejected': is_rejected,
                     'is_downloaded': existing_song is not None,
                     'is_downloading': is_downloading,
@@ -303,10 +606,17 @@ def get_playlist():
         if skipped_count > 0:
             print(f"    ⏭️  {skipped_count} canciones omitidas (ya descargadas o ignoradas)")
         print(f"    📦 Lotes procesados: {batch_count}")
+        if timed_out:
+            print(f"    ⚠️  Resultado PARCIAL: se agotó el tiempo máximo ({PLAYLIST_TIMEOUT}s). "
+                  f"Sube PLAYLIST_TIMEOUT en el .env o baja el número de canciones.")
         return jsonify({
             'success': True,
             'videos': videos_data,
-            'count': len(videos_data)
+            'count': len(videos_data),
+            'timed_out': timed_out,
+            'skipped': skipped_count,
+            'batches': batch_count,
+            'elapsed': round(elapsed, 2)
         })
     except Exception as e:
         elapsed = time.time() - start_time
@@ -698,6 +1008,104 @@ def _format_duration_seconds(seconds):
     return seconds, f'{m}:{s:02d}'
 
 
+def _search_youtube_innertube(query: str, limit: int = 8) -> list:
+    """Busca en YouTube usando la API interna (InnerTube) sin yt-dlp."""
+    import urllib.request as _urlreq
+    import urllib.parse as _urlparse
+
+    url = 'https://www.youtube.com/youtubei/v1/search?prettyPrint=false'
+    payload = json.dumps({
+        'query': query,
+        'context': {
+            'client': {
+                'clientName': 'WEB',
+                'clientVersion': '2.20240101.00.00',
+                'hl': 'es',
+                'gl': 'ES',
+            }
+        }
+    }).encode('utf-8')
+
+    req = _urlreq.Request(url, data=payload, headers={
+        'Content-Type': 'application/json',
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/120.0.0.0 Safari/537.36'
+        ),
+        'X-YouTube-Client-Name': '1',
+        'X-YouTube-Client-Version': '2.20240101.00.00',
+        'Accept-Language': 'es-ES,es;q=0.9',
+    })
+
+    with _urlreq.urlopen(req, timeout=8) as resp:
+        data = json.loads(resp.read().decode('utf-8'))
+
+    results = []
+    sections = (
+        data.get('contents', {})
+        .get('twoColumnSearchResultsRenderer', {})
+        .get('primaryContents', {})
+        .get('sectionListRenderer', {})
+        .get('contents', [])
+    )
+
+    for section in sections:
+        for item in section.get('itemSectionRenderer', {}).get('contents', []):
+            v = item.get('videoRenderer')
+            if not v:
+                continue
+            video_id = v.get('videoId', '')
+            if not video_id:
+                continue
+
+            title = ''
+            try:
+                title = v['title']['runs'][0]['text']
+            except (KeyError, IndexError):
+                pass
+
+            uploader = ''
+            try:
+                uploader = v['ownerText']['runs'][0]['text']
+            except (KeyError, IndexError):
+                pass
+
+            duration_str = ''
+            duration_sec = 0
+            try:
+                duration_str = v['lengthText']['simpleText']
+                parts = [int(x) for x in duration_str.split(':')]
+                if len(parts) == 2:
+                    duration_sec = parts[0] * 60 + parts[1]
+                elif len(parts) == 3:
+                    duration_sec = parts[0] * 3600 + parts[1] * 60 + parts[2]
+            except (KeyError, ValueError):
+                pass
+
+            view_count = None
+            try:
+                vt = v['viewCountText']['simpleText'].replace(',', '').replace('.', '').split()[0]
+                view_count = int(vt)
+            except (KeyError, ValueError, IndexError):
+                pass
+
+            results.append({
+                'id': video_id,
+                'url': f'https://www.youtube.com/watch?v={video_id}',
+                'title': title,
+                'uploader': uploader,
+                'duration': duration_sec,
+                'duration_str': duration_str,
+                'thumbnail': f'https://i.ytimg.com/vi/{video_id}/mqdefault.jpg',
+                'view_count': view_count,
+            })
+            if len(results) >= limit:
+                return results
+
+    return results
+
+
 @app.route('/api/youtube/search', methods=['GET'])
 def search_youtube_endpoint():
     """Busca videos en YouTube por texto, devolviendo sugerencias para descarga.
@@ -706,6 +1114,8 @@ def search_youtube_endpoint():
       q: texto a buscar (mínimo 2 caracteres)
       limit: número máximo de resultados (1-20, por defecto 8)
     """
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+
     query = (request.args.get('q') or '').strip()
     try:
         limit = int(request.args.get('limit', 8))
@@ -716,9 +1126,25 @@ def search_youtube_endpoint():
     if not query or len(query) < 2:
         return jsonify({'success': True, 'query': query, 'results': []})
 
+    search_start = time.time()
+    print(f"[{time.strftime('%H:%M:%S')}] 🔎 GET /api/youtube/search - \"{query}\" (máx {limit} resultados)")
+
+    # Intentar primero InnerTube (más rápido, sin yt-dlp)
+    try:
+        print(f"    → Intentando InnerTube (rápido)...")
+        results = _search_youtube_innertube(query, limit)
+        if results:
+            print(f"[{time.strftime('%H:%M:%S')}] ✅ InnerTube devolvió {len(results)} resultados en {time.time() - search_start:.2f}s")
+            return jsonify({'success': True, 'query': query, 'results': results})
+        print(f"    ⚠️  InnerTube no devolvió resultados ({time.time() - search_start:.2f}s), pasando a yt-dlp")
+    except Exception as e:
+        print(f"    ⚠️  InnerTube falló ({type(e).__name__}: {e}), pasando a yt-dlp")
+
+    # Fallback: yt-dlp con timeout real via thread
     try:
         import yt_dlp as _yt_dlp
     except ImportError:
+        print(f"[{time.strftime('%H:%M:%S')}] ❌ yt-dlp no está instalado")
         return jsonify({'success': False, 'error': 'yt-dlp no está instalado'}), 500
 
     ydl_opts = {
@@ -728,14 +1154,54 @@ def search_youtube_endpoint():
         'skip_download': True,
         'ignoreerrors': True,
         'default_search': 'ytsearch',
-        'socket_timeout': 15,
+        'socket_timeout': 8,
+        'extractor_retries': 0,
+        'retries': 0,
     }
     apply_cookies_to_opts(ydl_opts)
 
-    try:
+    def _do_ytdlp_search():
         with _yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f'ytsearch{limit}:{query}', download=False)
+        entries = (info or {}).get('entries') or []
+        out = []
+        for entry in entries:
+            if not entry:
+                continue
+            video_id = entry.get('id') or ''
+            if not video_id:
+                continue
+            thumbnail = entry.get('thumbnail')
+            if not thumbnail:
+                thumbs = entry.get('thumbnails') or []
+                thumbnail = thumbs[-1].get('url') if thumbs else None
+            if not thumbnail:
+                thumbnail = f'https://i.ytimg.com/vi/{video_id}/mqdefault.jpg'
+            duration_sec, duration_str = _format_duration_seconds(entry.get('duration'))
+            out.append({
+                'id': video_id,
+                'url': entry.get('url') or f'https://www.youtube.com/watch?v={video_id}',
+                'title': entry.get('title') or '',
+                'uploader': entry.get('uploader') or entry.get('channel') or '',
+                'duration': duration_sec,
+                'duration_str': duration_str,
+                'thumbnail': thumbnail,
+                'view_count': entry.get('view_count'),
+            })
+        return out
+
+    try:
+        print(f"    → Buscando con yt-dlp (timeout 10s)...")
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_do_ytdlp_search)
+            results = future.result(timeout=10)
+        print(f"[{time.strftime('%H:%M:%S')}] ✅ yt-dlp devolvió {len(results)} resultados en {time.time() - search_start:.2f}s")
+        return jsonify({'success': True, 'query': query, 'results': results})
+    except FuturesTimeout:
+        print(f"[{time.strftime('%H:%M:%S')}] ⏱️  yt-dlp no respondió en 10s (total {time.time() - search_start:.2f}s)")
+        return jsonify({'success': False, 'error': 'YouTube tardó demasiado en responder. Prueba en unos segundos.'}), 504
     except Exception as e:
+        print(f"[{time.strftime('%H:%M:%S')}] ❌ Error en yt-dlp tras {time.time() - search_start:.2f}s: {type(e).__name__}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
     entries = (info or {}).get('entries') or []
@@ -786,9 +1252,9 @@ def get_database_songs():
         if db is None:
             return jsonify({'success': False, 'error': 'Base de datos no inicializada'}), 500
         
-        # Obtener todas las canciones (limit=None = todas)
-        songs = db.get_all_songs(limit=limit)
-        
+        # Obtener canciones filtrando por búsqueda directamente en SQL (el límite se aplica sobre los ya filtrados)
+        songs = db.get_all_songs(limit=limit, search=search if search else None)
+
         # Convertir a formato serializable (asegurar que todos los valores sean JSON-serializables)
         serializable_songs = []
         for song in songs:
@@ -815,14 +1281,6 @@ def get_database_songs():
             if 'waveform_data' not in serializable_song:
                 serializable_song['waveform_data'] = None
             serializable_songs.append(serializable_song)
-        
-        # Filtrar por búsqueda
-        if search:
-            search_lower = search.lower()
-            serializable_songs = [s for s in serializable_songs if 
-                    search_lower in (s.get('title') or '').lower() or
-                    search_lower in (s.get('artist') or '').lower() or
-                    search_lower in (s.get('genre') or '').lower()]
         
         # Filtrar ignoradas si es necesario
         if not show_ignored:
@@ -874,6 +1332,132 @@ def generate_missing_waveforms():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/database/fetch-missing-albumart', methods=['POST'])
+def fetch_missing_albumart():
+    """Busca y rellena el album art (thumbnail_url) para canciones que no lo tienen."""
+    try:
+        if db is None:
+            return jsonify({'success': False, 'error': 'Base de datos no inicializada'}), 500
+
+        limit_arg = int(request.args.get('limit', 10))
+        limit = None if limit_arg <= 0 else max(1, limit_arg)
+        songs = db.get_all_songs(limit=None)
+        without_art = [s for s in songs if not (s.get('thumbnail_url') or '').strip()]
+        to_process = without_art if limit is None else without_art[:limit]
+
+        fetched = 0
+        not_found = 0
+        for song in to_process:
+            thumb_url = _fetch_albumart_for_song(song)
+            if thumb_url:
+                db.update_song(song['video_id'], thumbnail_url=thumb_url)
+                fetched += 1
+                # Intentar actualizar la tag APIC del archivo MP3
+                try:
+                    from mutagen.id3 import ID3, APIC
+                    from mutagen.mp3 import MP3
+                    import urllib.request as _ureq
+                    file_path_raw = (song.get('file_path') or '').strip()
+                    if file_path_raw:
+                        path_obj = _normalize_file_path_from_db(file_path_raw)
+                        if path_obj and path_obj.exists() and path_obj.is_file():
+                            req = _ureq.Request(thumb_url, headers={'User-Agent': 'Mozilla/5.0'})
+                            with _ureq.urlopen(req, timeout=10) as r:
+                                img_data = r.read()
+                            audio = MP3(str(path_obj), ID3=ID3)
+                            audio['APIC'] = APIC(
+                                encoding=3, mime='image/jpeg',
+                                type=3, desc='Cover', data=img_data
+                            )
+                            audio.save()
+                except Exception:
+                    pass
+            else:
+                not_found += 1
+
+        remaining = max(0, len(without_art) - len(to_process))
+        return jsonify({
+            'success': True,
+            'fetched': fetched,
+            'not_found': not_found,
+            'remaining': remaining,
+            'processed': len(to_process)
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/database/song/<video_id>/cover', methods=['GET'])
+def serve_song_cover(video_id):
+    """Sirve la portada embebida (APIC) de un archivo MP3 directamente como imagen."""
+    song = db.get_song_by_video_id(video_id)
+    if not song:
+        return jsonify({'success': False, 'error': 'Canción no encontrada'}), 404
+    file_path_raw = (song.get('file_path') or '').strip()
+    if not file_path_raw:
+        return jsonify({'success': False, 'error': 'Sin ruta de archivo'}), 404
+    path_obj = _normalize_file_path_from_db(file_path_raw)
+    if not path_obj or not path_obj.exists():
+        return jsonify({'success': False, 'error': 'Archivo no encontrado'}), 404
+    try:
+        import io
+        from mutagen.id3 import ID3
+        from mutagen.mp3 import MP3
+        audio = MP3(str(path_obj), ID3=ID3)
+        for key in audio.keys():
+            if key.startswith('APIC'):
+                apic = audio[key]
+                return send_file(io.BytesIO(apic.data), mimetype=apic.mime or 'image/jpeg')
+        return jsonify({'success': False, 'error': 'Sin portada embebida'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/database/song/<video_id>/albumart', methods=['POST'])
+def fetch_albumart_for_song(video_id):
+    """Busca y guarda el album art para una canción específica."""
+    song = db.get_song_by_video_id(video_id)
+    if not song:
+        return jsonify({'success': False, 'error': 'Canción no encontrada'}), 404
+
+    thumb_url = _fetch_albumart_for_song(song)
+    if not thumb_url:
+        return jsonify({'success': False, 'error': 'No se encontró album art'}), 404
+
+    db.update_song(video_id, thumbnail_url=thumb_url)
+
+    # Intentar actualizar la tag APIC del archivo MP3
+    try:
+        from mutagen.id3 import ID3, APIC
+        from mutagen.mp3 import MP3
+        import urllib.request as _ureq
+        file_path_raw = (song.get('file_path') or '').strip()
+        if file_path_raw:
+            path_obj = _normalize_file_path_from_db(file_path_raw)
+            if path_obj and path_obj.exists() and path_obj.is_file():
+                req = _ureq.Request(thumb_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with _ureq.urlopen(req, timeout=10) as r:
+                    img_data = r.read()
+                audio = MP3(str(path_obj), ID3=ID3)
+                audio['APIC'] = APIC(
+                    encoding=3, mime='image/jpeg',
+                    type=3, desc='Cover', data=img_data
+                )
+                audio.save()
+    except Exception:
+        pass
+
+    source = 'YouTube' if 'ytimg.com' in thumb_url else 'búsqueda online'
+    return jsonify({
+        'success': True,
+        'thumbnail_url': thumb_url,
+        'source': source,
+        'title': song.get('title', '')
+    })
 
 
 @app.route('/api/database/duplicates', methods=['GET'])

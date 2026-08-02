@@ -571,40 +571,47 @@ class MusicDatabase:
                 print(f"Error al designorar video: {e}")
                 return False
     
-    def get_all_songs(self, limit: Optional[int] = None, 
+    def get_all_songs(self, limit: Optional[int] = None,
                      genre: Optional[str] = None,
-                     decade: Optional[str] = None) -> List[Dict]:
+                     decade: Optional[str] = None,
+                     search: Optional[str] = None) -> List[Dict]:
         """
         Obtiene todas las canciones, opcionalmente filtradas.
-        
+
         Args:
             limit: Número máximo de resultados
             genre: Filtrar por género
             decade: Filtrar por década
+            search: Texto libre a buscar en título, artista o género
         """
         conn = self._get_connection()
         cursor = conn.cursor()
-        
+
         conditions = []
         params = []
-        
+
         if genre:
             conditions.append("genre = ?")
             params.append(genre)
-        
+
         if decade:
             conditions.append("decade = ?")
             params.append(decade)
-        
+
+        if search:
+            conditions.append("(LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(genre) LIKE ?)")
+            like = f"%{search.lower()}%"
+            params.extend([like, like, like])
+
         query = "SELECT * FROM songs"
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-        
+
         query += " ORDER BY downloaded_at DESC"
-        
+
         if limit:
             query += f" LIMIT {limit}"
-        
+
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
     
