@@ -17,6 +17,15 @@ MUSIC_FOLDER=/ruta/a/tu/carpeta/de/musica
 # Obtén una gratis en: https://www.last.fm/api/account/create
 # LASTFM_API_KEY=tu_api_key_aqui
 
+# Opcional: API key de AcoustID para identificar canciones por huella acústica
+# (fpcalc) y sacar el género de MusicBrainz. Alternativa ligera a Essentia: no
+# necesita TensorFlow, funciona bien en servidores con poca CPU/RAM.
+# Gratis en: https://acoustid.org/api-key
+# Requiere además el binario fpcalc instalado (paquete del sistema, no de pip):
+#   Linux (Debian/Ubuntu): sudo apt-get install libchromaprint-tools
+#   macOS: brew install chromaprint
+# ACOUSTID_API_KEY=tu_api_key_aqui
+
 # Opcional: cookies de YouTube (necesarias para acceder a tu lista "Me gusta" de
 # YouTube Music: https://music.youtube.com/playlist?list=LM y a videos privados).
 #

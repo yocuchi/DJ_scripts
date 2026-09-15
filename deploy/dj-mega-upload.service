@@ -1,0 +1,16 @@
+[Unit]
+Description=Sube la biblioteca a MEGA (solo subida, nunca borra)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/dj-scripts
+Environment=MEGA_LOCAL_ROOT=/srv/dj-music/DJ_SCRIPTS_LIB
+Environment=MEGA_REMOTE_ROOT=/DJ_SCRIPTS_LIB
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/dj-scripts/deploy/mega_upload.py
+StandardOutput=append:/opt/dj-scripts/logs/mega-upload.log
+StandardError=append:/opt/dj-scripts/logs/mega-upload.log
+# La sesion de MEGA vive en el HOME del usuario, asi que aqui no se aisla

@@ -42,6 +42,12 @@ except ImportError:
     ESSENTIA_AVAILABLE = False
     # No mostrar advertencia aquí, se mostrará solo si se intenta usar
 
+# fpcalc (Chromaprint): huella acústica ligera (~0.3s, ~30MB RAM por canción) para
+# identificar la pista vía AcoustID + MusicBrainz. A diferencia de Essentia no hace
+# falta TensorFlow ni analizar el audio en profundidad, así que funciona en el
+# servidor de 1 vCPU. Instalar con: sudo apt-get install libchromaprint-tools
+FPCALC_PATH = shutil.which('fpcalc')
+
 # Importar clasificador TF
 try:
     from genre_classifier_tf import get_best_genre
@@ -106,6 +112,10 @@ load_dotenv()
 MUSIC_FOLDER = os.getenv('MUSIC_FOLDER', os.path.expanduser('~/Music'))
 QUALITY = 'bestaudio/best'  # Mejor calidad disponible
 DB_PATH = os.getenv('DB_PATH', None)  # None = usar ruta por defecto
+
+# API key gratuita de AcoustID (https://acoustid.org/api-key) para identificar
+# canciones por huella acústica y sacar el género de MusicBrainz sin Essentia.
+ACOUSTID_API_KEY = os.getenv('ACOUSTID_API_KEY', '').strip()
 
 # Inicializar base de datos
 db = MusicDatabase(DB_PATH)
@@ -646,6 +656,130 @@ def get_genre_from_spotify_search(artist: Optional[str], track: str) -> Optional
     return None
 
 
+def _fpcalc_fingerprint(file_path: str) -> Optional[Tuple[int, str]]:
+    """
+    Genera la huella acústica (Chromaprint) de un archivo con el binario `fpcalc`.
+    Ligero (~0.3s, ~30MB RAM), a diferencia de Essentia: viable en un servidor de 1 vCPU.
+
+    Returns:
+        (duración en segundos, fingerprint) o None si fpcalc no está disponible o falla.
+    """
+    if not FPCALC_PATH:
+        return None
+    if not Path(file_path).exists():
+        return None
+
+    try:
+        result = subprocess.run(
+            [FPCALC_PATH, '-length', '120', '-json', file_path],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode != 0:
+            return None
+        data = json.loads(result.stdout)
+        return int(data['duration']), data['fingerprint']
+    except Exception:
+        return None
+
+
+def _musicbrainz_top_genre(entity_url: str) -> Optional[str]:
+    """
+    Consulta un recurso de MusicBrainz (recording o artist) y devuelve el género
+    más votado por la comunidad (campo `genres`, distinto de los `tags` libres).
+    """
+    if not REQUESTS_AVAILABLE:
+        return None
+
+    headers = {
+        'User-Agent': 'DJScripts/1.0 (uso personal, contacto vía MusicBrainz account)',
+        'Accept': 'application/json',
+    }
+    try:
+        response = requests.get(f'{entity_url}?inc=genres&fmt=json', headers=headers, timeout=10)
+        if response.status_code != 200:
+            return None
+        genres = response.json().get('genres') or []
+        if not genres:
+            return None
+        top = max(genres, key=lambda g: g.get('count', 0))
+        name = top.get('name', '').strip()
+        return name.title() if name else None
+    except Exception:
+        return None
+
+
+def get_genre_from_acoustid(file_path: str) -> Optional[str]:
+    """
+    Identifica la canción por huella acústica (fpcalc/Chromaprint + AcoustID) y
+    busca su género en MusicBrainz. Alternativa a Essentia para servidores sin
+    CPU/RAM de sobra: no requiere TensorFlow ni cargar el audio en memoria para
+    analizarlo, solo una huella (fpcalc) y un par de peticiones HTTP.
+
+    Requiere ACOUSTID_API_KEY en el entorno (gratis en https://acoustid.org/api-key)
+    y el binario fpcalc instalado (paquete `libchromaprint-tools`).
+
+    Args:
+        file_path: Ruta al archivo de audio ya descargado.
+
+    Returns:
+        Género detectado o None si no se pudo identificar la pista o no tiene género en MusicBrainz.
+    """
+    if not ACOUSTID_API_KEY or not REQUESTS_AVAILABLE:
+        return None
+
+    fp = _fpcalc_fingerprint(file_path)
+    if not fp:
+        return None
+    duration, fingerprint = fp
+
+    try:
+        # OJO: pedir "recordings" junto con "releasegroups" en meta hace que la API
+        # de AcoustID devuelva los resultados sin datos de recording (bug observado
+        # en pruebas). Pedir solo "recordings" funciona de forma fiable.
+        params = {
+            'client': ACOUSTID_API_KEY,
+            'meta': 'recordings',
+            'duration': str(duration),
+            'fingerprint': fingerprint,
+        }
+        response = requests.get('https://api.acoustid.org/v2/lookup', params=params, timeout=10)
+        if response.status_code != 200:
+            return None
+        data = response.json()
+        if data.get('status') != 'ok':
+            return None
+
+        recording_mbid = None
+        artist_mbid = None
+        for result in sorted(data.get('results', []), key=lambda r: r.get('score', 0), reverse=True):
+            recordings = result.get('recordings') or []
+            if recordings:
+                recording_mbid = recordings[0].get('id')
+                artists = recordings[0].get('artists') or []
+                if artists:
+                    artist_mbid = artists[0].get('id')
+                break
+
+        if not recording_mbid:
+            return None
+    except Exception:
+        return None
+
+    # 1. Género a nivel de grabación (la pista concreta identificada)
+    genre = _musicbrainz_top_genre(f'https://musicbrainz.org/ws/2/recording/{recording_mbid}')
+    if genre:
+        return genre
+
+    # 2. Fallback: género a nivel de artista (suele estar más poblado en MusicBrainz
+    #    que el de cada grabación individual)
+    if artist_mbid:
+        genre = _musicbrainz_top_genre(f'https://musicbrainz.org/ws/2/artist/{artist_mbid}')
+        if genre:
+            return genre
+
+    return None
+
+
 def get_genre_from_essentia(file_path: str) -> Optional[str]:
     """
     Detecta el género musical analizando el archivo de audio con Essentia.
@@ -956,45 +1090,52 @@ def detect_genre_online(artist: Optional[str], track: str, video_info: Optional[
 
 def detect_genre_from_audio_file(file_path: str, log_callback=None) -> Optional[str]:
     """
-    Detecta el género usando análisis de audio con Essentia.
-    Esta función debe llamarse DESPUÉS de descargar el archivo.
-    
+    Detecta el género a partir del propio archivo de audio ya descargado, sin depender
+    del título/artista. Dos vías, en orden:
+    1. AcoustID (huella acústica + MusicBrainz): ligero, funciona en servidores de 1 vCPU.
+    2. Essentia (análisis de audio local con TensorFlow): más preciso pero pesado,
+       solo disponible en escritorio (no está instalado en el servidor cloud).
+
     Args:
         file_path: Ruta al archivo de audio descargado
         log_callback: Función opcional para logging (recibe un string). Si es None, usa print()
-    
+
     Returns:
         Género detectado o None
     """
-    if not ESSENTIA_AVAILABLE:
+    def log(msg: str):
         if log_callback:
-            log_callback("   ⚠️  Essentia no está instalado")
-        return None
-    
+            log_callback(msg)
+        else:
+            print(msg)
+
     if not Path(file_path).exists():
         return None
-    
-    log_msg = "   🎵 Analizando audio con Essentia..."
-    if log_callback:
-        log_callback(log_msg)
-    else:
-        print(log_msg)
-    
+
+    if ACOUSTID_API_KEY and FPCALC_PATH:
+        log("   🎧 Identificando canción (AcoustID/MusicBrainz)...")
+        genre = get_genre_from_acoustid(file_path)
+        if genre:
+            log(f"   ✓ Género detectado (AcoustID/MusicBrainz): {genre}")
+            return genre
+        log("   ⚠️  AcoustID no pudo identificar la pista o no tiene género en MusicBrainz")
+    elif not ACOUSTID_API_KEY:
+        log("   ⚠️  ACOUSTID_API_KEY no configurada (gratis en https://acoustid.org/api-key)")
+    elif not FPCALC_PATH:
+        log("   ⚠️  fpcalc no está instalado (paquete libchromaprint-tools)")
+
+    if not ESSENTIA_AVAILABLE:
+        log("   ⚠️  Essentia no está instalado")
+        return None
+
+    log("   🎵 Analizando audio con Essentia...")
     genre = get_genre_from_essentia(file_path)
-    
+
     if genre:
-        log_msg = f"   ✓ Género detectado (análisis de audio Essentia): {genre}"
-        if log_callback:
-            log_callback(log_msg)
-        else:
-            print(log_msg)
+        log(f"   ✓ Género detectado (análisis de audio Essentia): {genre}")
         return genre
     else:
-        log_msg = "   ⚠️  Essentia no pudo detectar el género del audio"
-        if log_callback:
-            log_callback(log_msg)
-        else:
-            print(log_msg)
+        log("   ⚠️  Essentia no pudo detectar el género del audio")
         return None
 
 
@@ -1161,6 +1302,14 @@ def extract_metadata_from_title(title: str, description: str = "", video_info: O
     return metadata
 
 
+# Runtimes de JavaScript que yt-dlp puede usar para resolver los retos de
+# YouTube (firma y "n challenge"). Sin uno de ellos YouTube solo entrega los
+# storyboards y cualquier formato de audio da "Requested format is not
+# available". Por defecto yt-dlp solo habilita Deno, asi que Node hay que
+# pedirlo explicitamente: el servidor lleva Deno y el Mac tiene Node. Si un
+# runtime no esta o se queda corto de version, yt-dlp lo ignora y usa el otro.
+YT_JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
+
 def get_video_info(url: str, log_callback=None) -> Dict:
     """
     Obtiene información del video sin descargarlo.
@@ -1207,7 +1356,12 @@ def get_video_info(url: str, log_callback=None) -> Dict:
     # 1) Intentar primero con extract_flat (sin selector de formato) para evitar "Requested format is not available"
     #    en lyric videos, Music, etc. Solo obtenemos id, title, url; el resto se rellena por defecto.
     # Cliente Android a veces evita 403 de YouTube (issue yt-dlp #12482, #14680)
-    youtube_extractor_args = {'youtube': {'player_client': ['android']}}
+    # No se fuerza player_client: el cliente "android" no admite cookies y
+    # yt-dlp lo descarta por completo cuando se le pasan ("Skipping client
+    # android since it does not support cookies"), quedandose sin ningun
+    # cliente y sin formatos. Y las cookies son imprescindibles: sin ellas
+    # YouTube responde "Sign in to confirm you're not a bot".
+    youtube_extractor_args = {}
     opts_flat = {
         'quiet': True,
         'no_warnings': True,
@@ -1215,6 +1369,7 @@ def get_video_info(url: str, log_callback=None) -> Dict:
         'skip_download': True,
         'ignoreerrors': True,
         'extractor_args': youtube_extractor_args,
+        'js_runtimes': YT_JS_RUNTIMES,
     }
     if not apply_cookies_to_opts(opts_flat, log_callback=log):
         log(f"   ⚠️  No se encontraron cookies")
@@ -1242,9 +1397,10 @@ def get_video_info(url: str, log_callback=None) -> Dict:
         'extract_flat': False,
         'skip_download': True,
         'ignoreerrors': True,
-        'no_check_certificate': False,
+        'no_check_certificate': True,
         'format': 'bestaudio/best/worst',
         'extractor_args': youtube_extractor_args,
+        'js_runtimes': YT_JS_RUNTIMES,
     }
     apply_cookies_to_opts(ydl_opts)
 
@@ -1288,6 +1444,7 @@ def get_video_info(url: str, log_callback=None) -> Dict:
                     'skip_download': True,
                     'ignoreerrors': True,
                     'extractor_args': youtube_extractor_args,
+                    'js_runtimes': YT_JS_RUNTIMES,
                 }
                 apply_cookies_to_opts(ydl_opts_retry)
                 log(f"   🔄 Reintento 1/2: extract_flat=True...")
@@ -1306,6 +1463,7 @@ def get_video_info(url: str, log_callback=None) -> Dict:
                     'skip_download': True,
                     'ignoreerrors': True,
                     'extractor_args': youtube_extractor_args,
+                    'js_runtimes': YT_JS_RUNTIMES,
                 }
                 with yt_dlp.YoutubeDL(ydl_opts_retry_2) as ydl_retry_2:
                     info, _, _ = extract_with_captured_stderr(ydl_retry_2, url)
@@ -1645,7 +1803,12 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
         progress_hooks = [progress_hook]
     
     # Cliente Android puede evitar HTTP 403 con YouTube
-    youtube_extractor_args = {'youtube': {'player_client': ['android']}}
+    # No se fuerza player_client: el cliente "android" no admite cookies y
+    # yt-dlp lo descarta por completo cuando se le pasan ("Skipping client
+    # android since it does not support cookies"), quedandose sin ningun
+    # cliente y sin formatos. Y las cookies son imprescindibles: sin ellas
+    # YouTube responde "Sign in to confirm you're not a bot".
+    youtube_extractor_args = {}
     base_opts = {
         'outtmpl': output_path,
         'postprocessors': [{
@@ -1657,8 +1820,10 @@ def download_audio(url: str, output_path: str, metadata: Dict, progress_callback
         'no_warnings': False,  # Permitir warnings importantes pero silenciar spam
         'progress_hooks': progress_hooks,
         'extractor_args': youtube_extractor_args,
+        'js_runtimes': YT_JS_RUNTIMES,
+        'nocheckcertificate': True,  # Necesario con VPN corporativa (SSL inspection)
     }
-    
+
     # Intentar primero con cookies (si están disponibles), luego sin cookies
     # use_cookies indica si en este intento se aplican las cookies configuradas
     cookie_attempts = [True] if has_cookies else [False]
@@ -2145,6 +2310,33 @@ def get_cookies_browser() -> Optional[tuple]:
     return (raw,)
 
 
+def _get_runtime_cookies_file(master: str) -> str:
+    """
+    Devuelve la copia de trabajo del archivo de cookies para dársela a yt-dlp.
+
+    yt-dlp reescribe el cookiefile al cerrar (guarda las cookies rotadas por
+    YouTube), y si la sesión muere esa reescritura destruye las cookies buenas.
+    Por eso el archivo que sube el usuario es un maestro intocable: yt-dlp
+    trabaja siempre sobre `<maestro>_runtime.txt`, que se regenera desde el
+    maestro cada vez que éste cambia (un marcador `.src` recuerda de qué
+    versión del maestro salió la copia).
+    """
+    master_path = Path(master)
+    runtime = master_path.with_name(master_path.stem + '_runtime' + master_path.suffix)
+    marker = runtime.with_name(runtime.name + '.src')
+    try:
+        master_version = str(master_path.stat().st_mtime_ns)
+        marker_version = marker.read_text().strip() if marker.exists() else None
+        if not runtime.exists() or marker_version != master_version:
+            shutil.copyfile(master, runtime)
+            os.chmod(runtime, 0o600)
+            marker.write_text(master_version)
+        return str(runtime)
+    except OSError:
+        # Ante cualquier problema con la copia, comportamiento antiguo
+        return master
+
+
 def apply_cookies_to_opts(ydl_opts: dict, log_callback=None) -> Optional[str]:
     """
     Inyecta la configuración de cookies en un dict de opciones de yt-dlp.
@@ -2153,7 +2345,7 @@ def apply_cookies_to_opts(ydl_opts: dict, log_callback=None) -> Optional[str]:
 
     Returns:
         - "browser:<name>" si se aplicó cookiesfrombrowser
-        - ruta al archivo si se aplicó cookiefile
+        - ruta al archivo maestro si se aplicó cookiefile (yt-dlp usa su copia de trabajo)
         - None si no había cookies configuradas
     """
     def log(msg):
@@ -2169,8 +2361,9 @@ def apply_cookies_to_opts(ydl_opts: dict, log_callback=None) -> Optional[str]:
 
     cookies_file = get_cookies_file()
     if cookies_file:
-        ydl_opts['cookiefile'] = cookies_file
-        log(f"   📋 Usando cookies del archivo: {cookies_file}")
+        runtime_file = _get_runtime_cookies_file(cookies_file)
+        ydl_opts['cookiefile'] = runtime_file
+        log(f"   📋 Usando cookies del archivo: {cookies_file} (copia de trabajo: {os.path.basename(runtime_file)})")
         return cookies_file
 
     return None
@@ -3820,7 +4013,30 @@ def main():
             else:
                 print(f"❌ Archivo no encontrado: {audio_file}")
         sys.exit(0 if success else 1)
-    
+
+    # Verificar si se quiere probar AcoustID (identificación por huella acústica, sin Essentia)
+    if len(sys.argv) >= 2 and sys.argv[1] == '--test-acoustid':
+        if not FPCALC_PATH:
+            print("❌ fpcalc no está instalado. Instala con: sudo apt-get install libchromaprint-tools")
+            sys.exit(1)
+        if not ACOUSTID_API_KEY:
+            print("❌ ACOUSTID_API_KEY no configurada. Consigue una gratis en: https://acoustid.org/api-key")
+            sys.exit(1)
+        print(f"✅ fpcalc encontrado: {FPCALC_PATH}")
+        print("✅ ACOUSTID_API_KEY configurada")
+        if len(sys.argv) >= 3:
+            audio_file = sys.argv[2]
+            if Path(audio_file).exists():
+                print(f"\n🎧 Identificando: {audio_file}")
+                detected_genre = detect_genre_from_audio_file(audio_file)
+                if detected_genre:
+                    print(f"✅ Género detectado: {detected_genre}")
+                else:
+                    print("⚠️  No se pudo identificar la pista o no tiene género en MusicBrainz")
+            else:
+                print(f"❌ Archivo no encontrado: {audio_file}")
+        sys.exit(0)
+
     # Verificar si se quiere listar playlists
     if len(sys.argv) >= 2 and sys.argv[1] == '--list-playlists':
         list_user_playlists()
@@ -3844,6 +4060,7 @@ def main():
         print("   o: python download_youtube.py --list-playlists")
         print("   o: python download_youtube.py --test-cookies")
         print("   o: python download_youtube.py --test-essentia [archivo.mp3]")
+        print("   o: python download_youtube.py --test-acoustid [archivo.mp3]")
         print("\nEjemplo:")
         print("  python download_youtube.py https://www.youtube.com/watch?v=VIDEO_ID")
         print("  python download_youtube.py https://www.youtube.com/watch?v=VIDEO_ID --genre House --artist 'Artista' --year 2023")
@@ -3853,6 +4070,8 @@ def main():
         print("  python download_youtube.py --test-cookies  # Prueba si las cookies funcionan")
         print("  python download_youtube.py --test-essentia  # Prueba si Essentia está instalado")
         print("  python download_youtube.py --test-essentia archivo.mp3  # Prueba Essentia con un archivo")
+        print("  python download_youtube.py --test-acoustid  # Prueba si fpcalc/AcoustID están configurados")
+        print("  python download_youtube.py --test-acoustid archivo.mp3  # Identifica un archivo y saca su género")
         sys.exit(1)
     
     url = sys.argv[1]

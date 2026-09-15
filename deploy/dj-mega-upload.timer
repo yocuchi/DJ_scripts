@@ -1,0 +1,12 @@
+[Unit]
+Description=Subida horaria de la biblioteca a MEGA
+
+[Timer]
+OnCalendar=hourly
+# Repartir la carga: la instancia tiene 1 vCPU y la subida compite con la app
+RandomizedDelaySec=10m
+# Si la maquina estuvo apagada a la hora prevista, lanzarlo al arrancar
+Persistent=true
+
+[Install]
+WantedBy=timers.target

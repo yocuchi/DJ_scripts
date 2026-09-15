@@ -1,0 +1,13 @@
+# Dependencias para servir la app en un servidor headless (la Oracle, arm64).
+# Deliberadamente NO incluye essentia ni TensorFlow: en aarch64 no hay ruedas
+# y con 1 vCPU el analisis de audio no es viable. La clasificacion de genero
+# por analisis local queda desactivada; la online (Last.fm) sigue funcionando.
+yt-dlp[default]>=2023.12.30
+mutagen>=1.47.0
+Pillow>=10.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+flask>=3.0.0
+flask-cors>=4.0.0
+# Servidor WSGI de produccion (sustituye al de desarrollo de Werkzeug)
+waitress>=3.0.0

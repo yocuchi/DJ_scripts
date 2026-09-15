@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🎵 Gestor de Música para DJ</title>
+    <!-- PWA -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#764ba2">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="DJ Scripts">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192x192.png">
     <style>
         * {
             margin: 0;
@@ -493,7 +502,13 @@
             background: #e0e0e0;
             opacity: 0.7;
         }
-        
+
+        .song-item.queued {
+            background: #fff8e1;
+            border-color: #ffe082;
+            opacity: 0.85;
+        }
+
         .song-item.downloaded {
             background: #d4edda;
             border-color: #c3e6cb;
@@ -2165,9 +2180,7 @@
                 <input type="text" id="direct-url" placeholder="Pega aquí la URL de YouTube">
             </div>
             <div class="control-group">
-                <button class="btn btn-primary" onclick="downloadDirect()">📥 Descargar (con metadatos)</button>
-                <button class="btn btn-primary" onclick="downloadQuick()">⚡ Descarga Rápida</button>
-                <button class="btn btn-primary" onclick="getVideoInfo()">🎵 Info del Video</button>
+                <button class="btn btn-primary" onclick="downloadDirect()">📥 Descargar</button>
             </div>
             <div class="log-container" id="download-log"></div>
         </div>
@@ -2304,7 +2317,7 @@
                 </label>
             </div>
             <div class="control-group">
-                <button class="btn btn-primary" onclick="loadPlaylist({showConsole: true})">🔄 Cargar Playlist</button>
+                <button class="btn btn-primary" id="load-playlist-btn" onclick="loadPlaylist({showConsole: true})">🔄 Cargar Playlist</button>
             </div>
             <div id="playlist-results"></div>
             <div class="log-container" id="playlist-log"></div>
@@ -2561,7 +2574,8 @@
             audio: null,        // <audio> element
             loaded: false,      // ¿Cargada la lista de canciones desde la BD?
             loading: false,
-            selectedGenre: ''   // '' = todos
+            selectedGenre: '',  // '' = todos
+            loadToken: 0        // Identifica la carga en curso (descarta eventos de cargas anteriores)
         };
 
         async function radioEnsureLoaded() {
@@ -2661,8 +2675,11 @@
             a.addEventListener('ended', () => radioPlayNext());
             // Si falla la reproducción, saltar a la siguiente (con un pequeño margen)
             a.addEventListener('error', () => {
+                // Sin src todavía, o carga cancelada al cambiar de pista: no es un fallo real
+                if (!a.error || a.error.code === MediaError.MEDIA_ERR_ABORTED) return;
+                const token = Radio.loadToken;
                 radioSetStatus('Error reproduciendo "' + (Radio.current?.title || '') + '". Saltando…', 'error');
-                setTimeout(() => radioPlayNext(), 800);
+                setTimeout(() => { if (token === Radio.loadToken) radioPlayNext(); }, 800);
             });
             a.addEventListener('play', () => {
                 radioSetStatus('Sonando ahora', 'playing');
@@ -2987,8 +3004,11 @@
             const audio = radioGetAudio();
             radioRenderCurrent();
             if (!audio || !next) return;
+            const token = ++Radio.loadToken;
             audio.src = `/api/database/file?path=${encodeURIComponent(next.file_path)}`;
             audio.play().catch(err => {
+                // Rechazo de una carga ya reemplazada, o play() interrumpido por el nuevo src
+                if (token !== Radio.loadToken || err?.name === 'AbortError') return;
                 // Si autoplay está bloqueado, el usuario puede pulsar Play
                 radioSetStatus('Pulsa ▶ Play para reproducir (' + (err?.name || 'autoplay bloqueado') + ')', 'error');
             });
@@ -3273,8 +3293,10 @@
             const audio = radioGetAudio();
             radioRenderCurrent();
             if (audio && song.file_path) {
+                const token = ++Radio.loadToken;
                 audio.src = `/api/database/file?path=${encodeURIComponent(song.file_path)}`;
                 audio.play().catch(err => {
+                    if (token !== Radio.loadToken || err?.name === 'AbortError') return;
                     radioSetStatus('Pulsa ▶ Play para reproducir (' + (err?.name || 'autoplay bloqueado') + ')', 'error');
                 });
             }
@@ -5350,6 +5372,19 @@
             log('playlist', `   ⚙️ = línea del servidor (progreso real del backend)`);
 
             const t0 = Date.now();
+
+            // Indicador de carga: spinner en la zona de resultados y botón deshabilitado
+            const loadBtn = document.getElementById('load-playlist-btn');
+            if (loadBtn) loadBtn.disabled = true;
+            document.getElementById('playlist-results').innerHTML =
+                '<div class="yt-search-loading" id="playlist-loading">' +
+                '<div class="yt-search-loading-dot"></div>' +
+                '<span id="playlist-loading-text">Cargando playlist…</span></div>';
+            const loadingTimer = setInterval(() => {
+                const el = document.getElementById('playlist-loading-text');
+                if (el) el.textContent = `Cargando playlist… (${Math.round((Date.now() - t0) / 1000)}s)`;
+            }, 1000);
+
             const rid = ServerLog.newRequestId('playlist');
             const stream = await ServerLog.open('playlist', { rid });
             playlistInFlight = { controller, stream };
@@ -5376,6 +5411,8 @@
                     }
                 } else {
                     log('playlist', `❌ Error tras ${secs}s: ${data.error}`);
+                    document.getElementById('playlist-results').innerHTML =
+                        `<p style="text-align: center; padding: 40px;">❌ Error al cargar la playlist: ${data.error}</p>`;
                 }
             } catch (error) {
                 if (error.name === 'AbortError') {
@@ -5384,7 +5421,14 @@
                 }
                 await stream.finish();
                 log('playlist', `❌ Error tras ${((Date.now() - t0) / 1000).toFixed(1)}s: ${error.message}`);
+                if (myGen === playlistGeneration) {
+                    document.getElementById('playlist-results').innerHTML =
+                        `<p style="text-align: center; padding: 40px;">❌ Error al cargar la playlist: ${error.message}</p>`;
+                }
             } finally {
+                clearInterval(loadingTimer);
+                // Si otra carga ha sustituido a ésta, el botón y el spinner ya son suyos
+                if (myGen === playlistGeneration && loadBtn) loadBtn.disabled = false;
                 stream.stop();
                 if (playlistInFlight && playlistInFlight.controller === controller) {
                     playlistInFlight = null;
@@ -5401,26 +5445,41 @@
             }
             
             container.innerHTML = videos.map((video, index) => {
-                const statusClass = video.is_downloading ? 'downloading' : 
-                                   video.is_downloaded ? 'downloaded' : 
+                const statusClass = video.is_downloading ? 'downloading' :
+                                   video.is_queued ? 'queued' :
+                                   video.is_downloaded ? 'downloaded' :
                                    video.is_rejected ? 'rejected' : '';
-                
+
                 // Obtener progreso si está descargando - mostrar siempre si está descargando
-                const progressBar = video.is_downloading ? 
-                    `<div class="progress-container" style="margin-top: 10px; width: 100%; max-width: 500px;">
+                let progressBar = '';
+                if (video.is_downloading) {
+                    progressBar = `<div class="progress-container" style="margin-top: 10px; width: 100%; max-width: 500px;">
                         <div class="progress-bar" style="width: 100%; height: 24px; background-color: #e0e0e0; border-radius: 12px; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
                             <div id="progress-${video.id}" class="progress-fill" style="height: 100%; background: linear-gradient(90deg, #4CAF50, #45a049); width: ${video.progress || 0}%; transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: bold; min-width: ${(video.progress || 0) > 0 ? '50px' : '0'};">
                                 ${video.progress || 0}%
                             </div>
                         </div>
                         <div id="progress-info-${video.id}" style="font-size: 11px; color: #666; margin-top: 5px; text-align: left;"></div>
-                    </div>` : '';
-                
-                const actionButtons = !video.is_rejected && !video.is_downloaded ? 
-                    `<button class="btn btn-success" onclick="downloadSong('${video.id}', '${video.url.replace(/'/g, "\\'")}')" ${video.is_downloading ? 'disabled' : ''}>
-                        ${video.is_downloading ? '⏳ Descargando...' : '📥 Descargar'}
+                    </div>`;
+                } else if (video.is_queued) {
+                    // Esperando hueco en el pool de descargas: barra plana en amarillo con la posición en cola.
+                    const posText = video.queue_position ?
+                        `Encolada (${video.queue_position}${video.queue_total ? ' / ' + video.queue_total : ''})` :
+                        'Encolada';
+                    progressBar = `<div class="progress-container" style="margin-top: 10px; width: 100%; max-width: 500px;">
+                        <div class="progress-bar" style="width: 100%; height: 24px; background-color: #fff3cd; border-radius: 12px; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+                            <div id="progress-${video.id}" class="progress-fill queued" style="height: 100%; width: 0%; background: linear-gradient(90deg, #ffc107, #ffb300);"></div>
+                        </div>
+                        <div id="progress-info-${video.id}" style="font-size: 11px; color: #856404; margin-top: 5px; text-align: left; font-weight: bold;">⏳ ${posText}</div>
+                    </div>`;
+                }
+
+                const isBusy = video.is_downloading || video.is_queued;
+                const actionButtons = !video.is_rejected && !video.is_downloaded ?
+                    `<button class="btn btn-success" onclick="downloadSong('${video.id}', '${video.url.replace(/'/g, "\\'")}')" ${isBusy ? 'disabled' : ''}>
+                        ${video.is_downloading ? '⏳ Descargando...' : video.is_queued ? '⏳ En cola...' : '📥 Descargar'}
                      </button>
-                     <button class="btn btn-danger" onclick="rejectSong('${video.id}', '${video.url.replace(/'/g, "\\'")}', '${video.title.replace(/'/g, "\\'")}')" ${video.is_downloading ? 'disabled' : ''}>⊘ Ignorar</button>` :
+                     <button class="btn btn-danger" onclick="rejectSong('${video.id}', '${video.url.replace(/'/g, "\\'")}', '${video.title.replace(/'/g, "\\'")}')" ${isBusy ? 'disabled' : ''}>⊘ Ignorar</button>` :
                     '';
                 
                 return `
@@ -5488,30 +5547,32 @@
             log('playlist', `📥 Iniciando descarga: ${videoId}`);
             
             const songEl = document.getElementById(`song-${videoId}`);
-            songEl.classList.add('downloading');
-            
+            // Aún no sabemos si arrancará al momento o esperará hueco en el pool:
+            // se muestra como "encolada" (amarillo) hasta que el primer poll de
+            // monitorDownload() confirme el estado real ('queued' o 'downloading').
+            songEl.classList.add('queued');
+
             // Agregar barra de progreso inmediatamente
             const songInfo = songEl.querySelector('.song-info');
             if (songInfo && !songInfo.querySelector('.progress-container')) {
                 const progressHTML = `
                     <div class="progress-container" style="margin-top: 10px; width: 100%; max-width: 500px;">
-                        <div class="progress-bar" style="width: 100%; height: 24px; background-color: #e0e0e0; border-radius: 12px; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
-                            <div id="progress-${videoId}" class="progress-fill" style="height: 100%; background: linear-gradient(90deg, #4CAF50, #45a049); width: 0%; transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: bold;">
-                                0%
+                        <div class="progress-bar" style="width: 100%; height: 24px; background-color: #fff3cd; border-radius: 12px; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+                            <div id="progress-${videoId}" class="progress-fill queued" style="height: 100%; background: linear-gradient(90deg, #ffc107, #ffb300); width: 0%;">
                             </div>
                         </div>
-                        <div id="progress-info-${videoId}" style="font-size: 11px; color: #666; margin-top: 5px; text-align: left;"></div>
+                        <div id="progress-info-${videoId}" style="font-size: 11px; color: #856404; margin-top: 5px; text-align: left; font-weight: bold;">⏳ Encolada</div>
                     </div>
                 `;
                 songInfo.insertAdjacentHTML('beforeend', progressHTML);
             }
-            
+
             // Deshabilitar botones
             const buttons = songEl.querySelectorAll('button');
             buttons.forEach(btn => btn.disabled = true);
             const downloadBtn = songEl.querySelector('.btn-success');
             if (downloadBtn) {
-                downloadBtn.textContent = '⏳ Descargando...';
+                downloadBtn.textContent = '⏳ En cola...';
             }
             
             try {
@@ -5526,7 +5587,7 @@
                     monitorDownload(videoId);
                 } else {
                     log('playlist', `❌ Error: ${data.error}`);
-                    songEl.classList.remove('downloading');
+                    songEl.classList.remove('downloading', 'queued');
                     buttons.forEach(btn => btn.disabled = false);
                     if (downloadBtn) {
                         downloadBtn.textContent = '📥 Descargar';
@@ -5534,7 +5595,7 @@
                 }
             } catch (error) {
                 log('playlist', `❌ Error: ${error.message}`);
-                songEl.classList.remove('downloading');
+                songEl.classList.remove('downloading', 'queued');
                 buttons.forEach(btn => btn.disabled = false);
                 if (downloadBtn) {
                     downloadBtn.textContent = '📥 Descargar';
@@ -5602,12 +5663,44 @@
                     
                     const status = data.status.status || data.status;
                     const progress = data.status.progress || 0;
-                    
+
+                    if (status === 'queued') {
+                        // Aún esperando hueco en el pool de descargas (solo 2 a la vez):
+                        // barra plana en amarillo con la posición en cola, sin avanzar.
+                        songEl.classList.add('queued');
+                        songEl.classList.remove('downloading');
+                        if (progressBar) {
+                            progressBar.style.width = '0%';
+                            progressBar.style.background = 'linear-gradient(90deg, #ffc107, #ffb300)';
+                            progressBar.textContent = '';
+                            const barTrack = progressBar.parentElement;
+                            if (barTrack) barTrack.style.backgroundColor = '#fff3cd';
+                        }
+                        if (progressInfo) {
+                            const pos = data.status.queue_position;
+                            const total = data.status.queue_total;
+                            progressInfo.style.color = '#856404';
+                            progressInfo.style.fontWeight = 'bold';
+                            progressInfo.textContent = pos ? `⏳ Encolada (${pos}${total ? ' / ' + total : ''})` : '⏳ Encolada';
+                        }
+                        return; // seguimos haciendo poll, todavía no hay nada más que actualizar
+                    }
+
+                    // Ya arrancó de verdad (o terminó/falló): quitar restos visuales de "encolada"
+                    songEl.classList.remove('queued');
+                    if (progressInfo) {
+                        progressInfo.style.color = '#666';
+                        progressInfo.style.fontWeight = 'normal';
+                    }
+
                     // Actualizar barra de progreso
                     if (progressBar) {
+                        progressBar.style.background = 'linear-gradient(90deg, #4CAF50, #45a049)';
+                        const barTrack = progressBar.parentElement;
+                        if (barTrack) barTrack.style.backgroundColor = '#e0e0e0';
                         progressBar.style.width = `${progress}%`;
                         progressBar.textContent = `${progress}%`;
-                        
+
                         // Asegurar que el texto sea visible
                         if (progress < 15) {
                             progressBar.style.color = '#333';
@@ -6460,6 +6553,9 @@
             let panelEl, audioEl, toggleEl;
             let titleEl, artistEl, metaEl, statusEl;
             let btnPlay, btnNext, btnMin, btnClose;
+            // Identifica la carga en curso: los eventos/rechazos de cargas
+            // anteriores llegan tarde y no deben provocar saltos de pista.
+            let loadToken = 0;
 
             function loadPersisted() {
                 try {
@@ -6568,15 +6664,25 @@
                 const song = state.playlist[i];
                 if (!song) return false;
                 state.index = i;
+                const token = ++loadToken;
                 const url = `/api/database/file?path=${encodeURIComponent(song.file_path)}`;
                 audioEl.src = url;
                 renderCurrent();
                 const playPromise = audioEl.play();
                 if (playPromise && typeof playPromise.then === 'function') {
                     playPromise.catch(err => {
-                        // Errores de autoplay o de archivo: avanzar
-                        setStatus(`No se pudo reproducir (${err.name || 'error'}). Saltando…`, true);
-                        handleTrackError();
+                        // Rechazo de una carga ya reemplazada: ignorar
+                        if (token !== loadToken) return;
+                        const name = err && err.name;
+                        // Cambiar de src interrumpe el play() anterior: no es un fallo del archivo
+                        if (name === 'AbortError') return;
+                        // Autoplay bloqueado: saltar no ayuda, hay que pulsar Play
+                        if (name === 'NotAllowedError') {
+                            setStatus('Autoplay bloqueado: pulsa ▶ para reproducir.', true);
+                            return;
+                        }
+                        setStatus(`No se pudo reproducir (${name || 'error'}). Saltando…`, true);
+                        handleTrackError(token);
                     });
                 }
                 return true;
@@ -6603,7 +6709,9 @@
                 loadAndPlayIndex(nextIdx);
             }
 
-            function handleTrackError() {
+            function handleTrackError(token) {
+                // Si mientras esperábamos ya se cargó otra pista, este error es obsoleto
+                if (token !== undefined && token !== loadToken) return;
                 state.consecutiveErrors++;
                 if (state.consecutiveErrors >= 5) {
                     setStatus('Demasiados errores seguidos. Detenido.', true);
@@ -6613,7 +6721,8 @@
                     renderCurrent();
                     return;
                 }
-                setTimeout(() => next(), 250);
+                const t = loadToken;
+                setTimeout(() => { if (t === loadToken) next(); }, 250);
             }
 
             async function togglePlay() {
@@ -6646,8 +6755,11 @@
                     next();
                 });
                 audioEl.addEventListener('error', () => {
+                    // Sin src todavía, o carga cancelada por un cambio de pista: no es un fallo real
+                    const err = audioEl.error;
+                    if (!err || err.code === MediaError.MEDIA_ERR_ABORTED) return;
                     setStatus('Error al cargar el archivo. Saltando…', true);
-                    handleTrackError();
+                    handleTrackError(loadToken);
                 });
             }
 
@@ -6672,7 +6784,11 @@
 
                 bindAudioEvents();
                 btnPlay.addEventListener('click', togglePlay);
-                btnNext.addEventListener('click', next);
+                btnNext.addEventListener('click', () => {
+                    // Salto pedido por el usuario: no cuenta como error
+                    state.consecutiveErrors = 0;
+                    next();
+                });
                 btnMin.addEventListener('click', () => setMinimized(!state.minimized));
                 btnClose.addEventListener('click', () => setVisible(false));
                 toggleEl.addEventListener('click', () => {
@@ -6694,5 +6810,15 @@
             checkFfmpegStatus();
         });
     </script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('SW registrado:', reg.scope))
+        .catch(err => console.warn('SW error:', err));
+    });
+  }
+</script>
 </body>
 </html>

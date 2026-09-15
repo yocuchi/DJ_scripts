@@ -1,0 +1,42 @@
+[Unit]
+Description=DJ scripts: gestor de musica (solo tailnet, via tailscale serve)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/dj-scripts
+EnvironmentFile=/opt/dj-scripts/.env
+# ProtectHome oculta /home, asi que yt-dlp necesita un HOME propio para su cache
+Environment=HOME=/opt/dj-scripts/home
+Environment=XDG_CACHE_HOME=/opt/dj-scripts/home/.cache
+# Sin esto Python bufferia stdout al no haber TTY y el log queda vacio
+Environment=PYTHONUNBUFFERED=1
+# YouTube exige resolver un reto en JavaScript para entregar los formatos de
+# audio. yt-dlp necesita para eso un runtime de JS: Node del sistema es v20 y
+# el minimo que acepta son v22, asi que se usa Deno instalado aparte, en el
+# directorio de la app. No se toca el Node del sistema porque de el dependen
+# los otros servicios de la maquina.
+Environment=PATH=/opt/dj-scripts/bin:/usr/local/bin:/usr/bin:/bin
+Environment=DENO_DIR=/opt/dj-scripts/home/.deno
+# Escucha SOLO en 127.0.0.1; quien lo publica (con TLS) es `tailscale serve`.
+ExecStart=/opt/dj-scripts/.venv/bin/python /opt/dj-scripts/serve_remote.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/dj-scripts/logs/server.log
+StandardError=append:/opt/dj-scripts/logs/server.log
+
+# Contencion: la app solo necesita su propio directorio y la biblioteca.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/dj-scripts /srv/dj-music
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

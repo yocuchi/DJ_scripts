@@ -6,7 +6,8 @@ MUSIC/
 
 # Archivos sensibles (no subir a GitHub)
 .env
-youtube_cookies.txt
+youtube_cookies*.txt
+youtube_cookies*.txt.src
 
 # Archivos de configuración X11 (solo para entorno local)
 
@@ -38,3 +39,11 @@ C:*
 # Configuración local de Claude Code
 .claude/
 
+
+# Helper local para arrancar la app en un puerto de pruebas
+_tmp_server.py
+
+# Solo del servidor: runtime de deno, caches y logs
+bin/
+home/
+logs/

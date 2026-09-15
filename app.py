@@ -290,11 +290,92 @@ import_logs = {}
 direct_download_tasks = {}
 redownload_full_status = {}
 
+# Pool acotado para las descargas (yt-dlp + ffmpeg + clasificación de género
+# van todos en el mismo hilo). Antes cada petición lanzaba un
+# threading.Thread sin límite: una ráfaga de clics o varias pestañas podían
+# apilar N descargas simultáneas y agotar la RAM de la máquina (sin swap,
+# eso colgó el servidor entero el 27/08/2026). Con el pool, lo que exceda
+# el límite se queda en cola y arranca en cuanto haya hueco.
+from concurrent.futures import ThreadPoolExecutor
+DOWNLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix='download')
+
+# Seguimiento de la cola de espera del pool de arriba: el ThreadPoolExecutor
+# no expone su cola interna ni la posición de cada tarea, así que la
+# llevamos nosotros a mano para poder mostrar "Encolada (nº)" en la
+# playlist mientras una descarga espera hueco.
+_queue_lock = threading.Lock()
+_download_queue_order = []  # video_ids esperando hueco, en orden de llegada
+
+
+def _queue_add(video_id):
+    """Registra video_id como recién encolado y recalcula posiciones."""
+    with _queue_lock:
+        if video_id not in _download_queue_order:
+            _download_queue_order.append(video_id)
+        _queue_recompute_positions_locked()
+
+
+def _queue_start(video_id):
+    """Saca video_id de la cola de espera cuando el executor lo arranca de verdad."""
+    with _queue_lock:
+        if video_id in _download_queue_order:
+            _download_queue_order.remove(video_id)
+        _queue_recompute_positions_locked()
+
+
+def _queue_recompute_positions_locked():
+    """Recalcula 'queue_position'/'queue_total' de todo lo que sigue en cola. Requiere _queue_lock tomado."""
+    total = len(_download_queue_order)
+    for idx, vid in enumerate(_download_queue_order):
+        st = download_status.get(vid)
+        if st and st.get('status') == 'queued':
+            st['queue_position'] = idx + 1
+            st['queue_total'] = total
+
+
+def _find_library_path_insensitive(relative):
+    """
+    Busca una ruta relativa dentro del MUSIC_FOLDER ignorando mayúsculas y la
+    forma de normalización Unicode. macOS guarda los nombres de fichero en NFD
+    (la tilde va aparte) y trata las mayúsculas como equivalentes; Linux es
+    sensible a las dos cosas. Por eso una ruta escrita desde el Mac o desde
+    Windows ("Edm", "Céline" en NFC) no encuentra su fichero en el servidor.
+    Devuelve la ruta real o None. Solo recorre el interior de la biblioteca.
+    """
+    import unicodedata
+
+    current = Path(MUSIC_FOLDER)
+    for part in Path(relative).parts:
+        if part in ('.', '..'):
+            return None
+        candidate = current / part
+        if candidate.exists():
+            current = candidate
+            continue
+        wanted = unicodedata.normalize('NFC', part).lower()
+        match = None
+        try:
+            for child in current.iterdir():
+                if unicodedata.normalize('NFC', child.name).lower() == wanted:
+                    match = child
+                    break
+        except OSError:
+            return None
+        if match is None:
+            return None
+        current = match
+    return current
+
 
 def _normalize_file_path_from_db(file_path_raw: str):
     """
     Convierte una ruta guardada en la BD a una ruta válida en el SO actual.
+    La BD se comparte entre máquinas, así que la misma biblioteca aparece con
+    varios prefijos: C:\\...\\DJ_SCRIPTS_LIB, /mnt/c/.../DJ_SCRIPTS_LIB (WSL) y
+    la ruta nativa del Mac.
     En Windows, rutas WSL/Linux como /mnt/c/Users/... se convierten a C:\\Users\\...
+    Fuera de Windows, las rutas de Windows y de WSL se reescriben sobre el
+    MUSIC_FOLDER local conservando la parte relativa a la raíz de la biblioteca.
     """
     if not file_path_raw or not file_path_raw.strip():
         return None
@@ -305,11 +386,54 @@ def _normalize_file_path_from_db(file_path_raw: str):
             drive_letter = path_str[5]  # 'c', 'd', etc.
             rest = path_str[6:].replace('/', os.sep)
             path_str = f'{drive_letter.upper()}:{os.sep}{rest}'
+    else:
+        # SO tipo Unix. La ruta puede venir de cualquiera de las máquinas que
+        # comparten la BD: Windows (C:\...), WSL (/mnt/c/...) u otro Unix con un
+        # MUSIC_FOLDER distinto (el Mac y el servidor no la tienen en el mismo
+        # sitio). Si no cae ya dentro del MUSIC_FOLDER local pero se reconoce la
+        # raíz de la biblioteca, se recoloca conservando la parte relativa.
+        unix_style = path_str.replace('\\', '/')
+        library_root = Path(MUSIC_FOLDER)
+        is_windows_style = bool(re.match(r'^[A-Za-z]:[\\/]', path_str)) or unix_style.startswith('/mnt/')
+        try:
+            inside_library = Path(unix_style).is_relative_to(library_root)
+        except (ValueError, OSError):
+            inside_library = False
+
+        if is_windows_style or not inside_library:
+            marker = f'/{library_root.name}/'
+            idx = unix_style.find(marker)
+            if idx != -1:
+                relative = unix_style[idx + len(marker):]
+            elif is_windows_style:
+                # Ruta de Windows/WSL sin raíz reconocible: al menos el nombre
+                relative = unix_style.rsplit('/', 1)[-1]
+            else:
+                # Ruta Unix ajena a la biblioteca: puede ser un fichero legítimo
+                # de fuera (una importación puntual). Se deja como está.
+                relative = None
+            if relative is not None:
+                # '..' en la parte relativa sacaría el fichero de la biblioteca
+                if '..' in Path(relative).parts:
+                    return None
+                path_str = str(library_root / relative)
     path_obj = Path(path_str)
     try:
         path_obj = path_obj.resolve()
     except (OSError, RuntimeError):
         pass
+
+    # Último recurso: el fichero está en la biblioteca pero con otra forma
+    # (mayúsculas o normalización Unicode distintas a las que guardó la BD).
+    if not path_obj.exists():
+        try:
+            relative = path_obj.relative_to(Path(MUSIC_FOLDER).resolve())
+        except (ValueError, OSError):
+            relative = None
+        if relative is not None:
+            alternativa = _find_library_path_insensitive(str(relative))
+            if alternativa is not None:
+                return alternativa
     return path_obj
 
 
@@ -420,6 +544,30 @@ def _fetch_albumart_for_song(song: dict):
 def index():
     """Página principal."""
     return render_template('index.html')
+
+
+@app.route('/sw.js')
+def service_worker():
+    """
+    El service worker se sirve desde la raíz, no desde /static/.
+
+    Un service worker solo puede controlar su propio directorio hacia abajo, así
+    que servido como /static/sw.js su scope era /static/ y no llegaba a la
+    portada de la app. Sin controlar el start_url, el navegador tampoco ofrece
+    instalar la PWA.
+    """
+    response = send_file(str(Path(__file__).parent / 'static' / 'sw.js'),
+                         mimetype='text/javascript')
+    # Que no se quede cacheado un service worker viejo al desplegar
+    response.headers['Cache-Control'] = 'no-cache'
+    return response
+
+
+@app.route('/api/connectivity', methods=['GET'])
+def get_connectivity():
+    """Estado de la red, para que la interfaz avise antes de dejar fallar nada."""
+    status = check_connectivity(force=request.args.get('force', '').lower() == 'true')
+    return jsonify({'success': True, **status})
 
 
 @app.route('/api/playlist', methods=['GET'])
@@ -572,12 +720,12 @@ def get_playlist():
                 artist = (metadata.get('artist') if metadata else None) \
                          or video.get('artist') or 'Desconocido'
 
-                # Obtener información de progreso si está descargando
-                is_downloading = video_id in download_status and download_status[video_id].get('status') == 'downloading'
-                progress = 0
-                if is_downloading:
-                    progress = download_status[video_id].get('progress', 0)
-                
+                # Obtener información de progreso si está descargando o encolada
+                video_dl_status = download_status.get(video_id, {})
+                is_downloading = video_dl_status.get('status') == 'downloading'
+                is_queued = video_dl_status.get('status') == 'queued'
+                progress = video_dl_status.get('progress', 0) if is_downloading else 0
+
                 videos_data.append({
                     'id': video_id,
                     'title': title,
@@ -588,7 +736,10 @@ def get_playlist():
                     'is_rejected': is_rejected,
                     'is_downloaded': existing_song is not None,
                     'is_downloading': is_downloading,
-                    'progress': progress
+                    'progress': progress,
+                    'is_queued': is_queued,
+                    'queue_position': video_dl_status.get('queue_position') if is_queued else None,
+                    'queue_total': video_dl_status.get('queue_total') if is_queued else None
                 })
                 print(f"      → ✅ Agregada a la lista ({len(videos_data)}/{limit})")
             
@@ -639,11 +790,19 @@ def download_song():
     
     if not video_id or not video_url:
         return jsonify({'success': False, 'error': 'Faltan parámetros'}), 400
-    
+
+    # Se marca como "encolada" ANTES de mandarla al pool (que solo tiene 2
+    # workers): así el frontend ve enseguida el estado 'queued' con su
+    # posición, en vez del 'idle' que antes dejaba la barra sin ningún
+    # indicio mientras esperaba hueco para arrancar.
+    download_status[video_id] = {'status': 'queued', 'progress': 0}
+    download_logs[video_id] = []
+    _queue_add(video_id)
+
     def download_thread():
         try:
+            _queue_start(video_id)
             download_status[video_id] = {'status': 'downloading', 'progress': 0, 'downloaded_bytes': 0, 'total_bytes': 0}
-            download_logs[video_id] = []
 
             def add_log(msg):
                 """Añade un mensaje al log de la descarga (lo verá la consola flotante)."""
@@ -788,7 +947,7 @@ def download_song():
                 pass
             download_status[video_id] = {'status': 'error', 'error': str(e), 'error_detail': tb}
     
-    threading.Thread(target=download_thread, daemon=True).start()
+    DOWNLOAD_EXECUTOR.submit(download_thread)
     return jsonify({'success': True, 'message': 'Descarga iniciada'})
 
 
@@ -939,7 +1098,7 @@ def download_direct():
             if video_id:
                 download_logs[video_id].append(tb)
     
-    threading.Thread(target=download_thread, daemon=True).start()
+    DOWNLOAD_EXECUTOR.submit(download_thread)
     return jsonify({'success': True, 'task_id': task_id, 'message': 'Descarga iniciada'})
 
 
@@ -970,7 +1129,7 @@ def download_quick_endpoint():
             }
             print(f"[{time.strftime('%H:%M:%S')}] ❌ Error en descarga rápida: {err_msg}\n{tb}")
     
-    threading.Thread(target=quick_download_thread, daemon=True).start()
+    DOWNLOAD_EXECUTOR.submit(quick_download_thread)
     return jsonify({'success': True, 'task_id': task_id, 'message': 'Descarga rápida iniciada'})
 
 
@@ -1849,10 +2008,11 @@ def serve_song_file():
         return jsonify({'success': False, 'error': 'Faltan parámetros'}), 400
     
     try:
-        file_path_obj = Path(file_path)
-        
+        # La BD puede traer rutas de otro SO (C:\... desde el PC): normalizarlas
+        file_path_obj = _normalize_file_path_from_db(file_path)
+
         # Verificar que el archivo existe y está dentro de la carpeta de música
-        if not file_path_obj.exists():
+        if not file_path_obj or not file_path_obj.exists():
             return jsonify({'success': False, 'error': 'El archivo no existe'}), 404
         
         # Verificar que está dentro de la carpeta de música (seguridad)
@@ -2058,6 +2218,7 @@ def get_config():
                 'MUSIC_FOLDER': config.get('MUSIC_FOLDER', ''),
                 'DB_PATH': db_path_config,
                 'LASTFM_API_KEY': config.get('LASTFM_API_KEY', ''),
+                'ACOUSTID_API_KEY': config.get('ACOUSTID_API_KEY', ''),
                 'ESSENTIA_CLASSIFIER': config.get('ESSENTIA_CLASSIFIER', 'auto'),
                 'YOUTUBE_COOKIES_BROWSER': config.get('YOUTUBE_COOKIES_BROWSER', ''),
                 'YOUTUBE_COOKIES_BROWSER_PROFILE': config.get('YOUTUBE_COOKIES_BROWSER_PROFILE', ''),
