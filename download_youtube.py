@@ -15,7 +15,7 @@ import urllib.request
 import subprocess
 import shutil
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, List, Tuple
 from datetime import datetime
 import yt_dlp
 from mutagen.mp3 import MP3
@@ -2261,6 +2261,104 @@ def save_rejected_video(video_id: str, url: Optional[str] = None,
     db.add_rejected_video(video_id, url=url, title=title, reason=reason)
 
 
+# Mensajes de yt-dlp que indican que el vídeo ya no existe o no se puede ver
+# (a diferencia de "Sign in to confirm you're not a bot", que es un problema
+# de cookies y NO debe llevar a ignorar la canción).
+UNAVAILABLE_MARKERS = (
+    'video unavailable',
+    'private video',
+    'has been removed',
+    'account associated with this video has been terminated',
+    'blocked it in your country',
+    'copyright',
+    'no longer available',
+)
+
+
+def diagnose_unavailable_video(video_id: str) -> Optional[str]:
+    """Pregunta a YouTube por el vídeo y devuelve el motivo si ya no está disponible.
+
+    Devuelve None si el vídeo existe o si el fallo es de otro tipo (cookies,
+    red...): solo se considera "no disponible" lo que YouTube dice expresamente.
+    """
+    opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'skip_download': True,
+        'socket_timeout': 15,
+        'extractor_retries': 0,
+    }
+    apply_cookies_to_opts(opts)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=False)
+    except Exception as e:
+        msg = re.sub(r'\x1b\[[0-9;]*m', '', str(e))
+        low = msg.lower()
+        if any(m in low for m in UNAVAILABLE_MARKERS):
+            return msg.rsplit(': ', 1)[-1].strip() or 'Video unavailable'
+    return None
+
+
+def find_alternative_video(title: str, artist: Optional[str] = None,
+                           exclude_ids: Optional[List[str]] = None) -> Optional[Dict]:
+    """Busca en YouTube otra versión de la canción y devuelve la primera utilizable.
+
+    Se descartan el propio vídeo caído, los ya ignorados y los ya descargados.
+    """
+    title = (title or '').strip()
+    if not title:
+        return None
+    artist = re.sub(r'\s*-\s*Topic$', '', (artist or '').strip())
+    if artist.lower() in ('', 'desconocido'):
+        artist = ''
+    query = f"{artist} {title}".strip()
+
+    opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': True,
+        'skip_download': True,
+        'ignoreerrors': True,
+        'socket_timeout': 10,
+        'extractor_retries': 0,
+    }
+    apply_cookies_to_opts(opts)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(f'ytsearch8:{query}', download=False)
+    except Exception:
+        return None
+
+    import unicodedata
+
+    def _norm(text: str) -> str:
+        text = unicodedata.normalize('NFD', text or '')
+        text = ''.join(c for c in text if not unicodedata.combining(c))
+        return re.sub(r'[^a-z0-9]+', ' ', text.lower()).strip()
+
+    wanted = _norm(title)
+    exclude = set(exclude_ids or [])
+    for entry in (info or {}).get('entries') or []:
+        vid = (entry or {}).get('id')
+        if not vid or vid in exclude or is_rejected_video(vid) or db.get_song_by_video_id(vid):
+            continue
+        # Solo se propone algo que de verdad lleve el título buscado: mejor no
+        # sugerir nada que sugerir otra canción cualquiera.
+        if wanted not in _norm(entry.get('title') or ''):
+            continue
+        duration = entry.get('duration')
+        return {
+            'id': vid,
+            'url': entry.get('url') or f'https://www.youtube.com/watch?v={vid}',
+            'title': entry.get('title') or '',
+            'artist': re.sub(r'\s*-\s*Topic$', '', entry.get('uploader') or entry.get('channel') or ''),
+            'duration': duration,
+            'thumbnail': f'https://i.ytimg.com/vi/{vid}/hqdefault.jpg',
+        }
+    return None
+
+
 SUPPORTED_COOKIE_BROWSERS = (
     'brave', 'chrome', 'chromium', 'edge', 'firefox', 'opera', 'safari', 'vivaldi', 'whale'
 )
@@ -2372,6 +2470,334 @@ def apply_cookies_to_opts(ydl_opts: dict, log_callback=None) -> Optional[str]:
 def has_cookies_configured() -> bool:
     """Indica si hay alguna fuente de cookies configurada (archivo o navegador)."""
     return bool(get_cookies_browser()) or bool(get_cookies_file())
+
+
+# ============================================================
+# Salud de las cookies de YouTube
+#
+# yt-dlp no distingue "la playlist no existe" de "no estás logueado": para
+# las listas ligadas a la cuenta (LM, LL, WL, historial...) YouTube responde
+# lo primero cuando pasa lo segundo. Aquí se interpreta ese error y se
+# recuerda el último resultado para que la web pueda avisar con claridad.
+# ============================================================
+
+# Listas que sólo existen con sesión iniciada
+_ACCOUNT_PLAYLIST_IDS = {'LM', 'LL', 'WL', 'HL'}
+_ACCOUNT_FEED_PATHS = ('/feed/history', '/feed/library', '/feed/subscriptions', '/library')
+
+COOKIES_HEALTH = {
+    'ok': None,          # None = sin comprobar todavía, True/False
+    'kind': None,        # cookies_expired | bot_check | no_cookies | playlist_missing | other
+    'title': None,       # resumen legible
+    'hint': None,        # qué hacer
+    'error': None,       # texto crudo de yt-dlp
+    'source': None,      # archivo o navegador en uso
+    'checked_at': None,  # ISO 8601
+    'url': None,         # URL que se intentó
+}
+
+COOKIES_RENEW_HINT = (
+    'Copia de nuevo las cookies de youtube.com con la extensión del navegador (con sesión '
+    'iniciada en YouTube Music, a ser posible desde un perfil que luego no vuelvas a usar) '
+    'y pégalas en Configuración → "Pegar cookies".'
+)
+
+
+def is_account_playlist_url(url: str) -> bool:
+    """True si la URL es una lista que sólo existe para un usuario logueado."""
+    if not url:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(url)
+        qs = urllib.parse.parse_qs(parsed.query)
+        list_id = (qs.get('list') or [''])[0]
+        if list_id in _ACCOUNT_PLAYLIST_IDS:
+            return True
+        return any(parsed.path.startswith(p) for p in _ACCOUNT_FEED_PATHS)
+    except Exception:
+        return False
+
+
+def classify_cookies_error(error_text: str, url: str = '') -> Optional[Dict]:
+    """
+    Interpreta un error de yt-dlp relacionado con la sesión de YouTube.
+
+    Returns:
+        dict con kind/title/hint, o None si el error no parece de cookies.
+    """
+    txt = (error_text or '').lower()
+    if not txt:
+        return None
+    if ('does not exist' in txt or 'playlist no existe' in txt) and 'playlist' in txt:
+        if is_account_playlist_url(url) or not url:
+            return {
+                'kind': 'cookies_expired',
+                'title': 'Las cookies de YouTube han caducado',
+                'hint': 'YouTube no reconoce la sesión: la lista "Me gusta" sólo existe para un '
+                        'usuario identificado y responde que no existe. ' + COOKIES_RENEW_HINT,
+            }
+        return {
+            'kind': 'playlist_missing',
+            'title': 'La playlist no existe o es privada',
+            'hint': 'Comprueba la URL. Si la lista es tuya y privada, las cookies no están '
+                    'autenticadas: ' + COOKIES_RENEW_HINT,
+        }
+    if ('sign in' in txt or 'confirm you' in txt or 'not a bot' in txt
+            or 'login required' in txt or 'log in' in txt or 'cookies are no longer valid' in txt):
+        return {
+            'kind': 'bot_check',
+            'title': 'YouTube pide iniciar sesión (control anti-bot)',
+            'hint': 'YouTube ha invalidado la sesión o exige verificación. ' + COOKIES_RENEW_HINT,
+        }
+    if 'could not find' in txt and 'cookies' in txt:
+        return {
+            'kind': 'other',
+            'title': 'No se pudieron leer las cookies del navegador',
+            'hint': 'Cierra todas las ventanas del navegador antes de intentarlo, o usa un archivo de cookies.',
+        }
+    return None
+
+
+def record_cookies_result(ok: bool, error_text: str = '', url: str = '') -> Optional[Dict]:
+    """
+    Guarda el resultado de la última operación autenticada contra YouTube.
+
+    Returns:
+        La clasificación del error (ver classify_cookies_error) si lo hubo, o None.
+    """
+    browser_cfg = get_cookies_browser()
+    if browser_cfg:
+        source = f"navegador {browser_cfg[0]}"
+    else:
+        source = get_cookies_file() or None
+
+    now = datetime.now().isoformat(timespec='seconds')
+    if ok:
+        COOKIES_HEALTH.update({
+            'ok': True, 'kind': None, 'title': None, 'hint': None,
+            'error': None, 'source': source, 'checked_at': now, 'url': url or None,
+        })
+        return None
+
+    if not has_cookies_configured():
+        info = {
+            'kind': 'no_cookies',
+            'title': 'No hay cookies de YouTube configuradas',
+            'hint': 'Sin cookies la playlist "Me gusta" no se puede leer. ' + COOKIES_RENEW_HINT,
+        }
+    else:
+        info = classify_cookies_error(error_text, url) or {
+            'kind': 'other',
+            'title': 'No se pudo leer la playlist de YouTube',
+            'hint': 'Revisa la salida de yt-dlp. Si el fallo persiste, renueva las cookies: ' + COOKIES_RENEW_HINT,
+        }
+    COOKIES_HEALTH.update({
+        'ok': False,
+        'kind': info['kind'],
+        'title': info['title'],
+        'hint': info['hint'],
+        'error': (error_text or '').strip() or None,
+        'source': source,
+        'checked_at': now,
+        'url': url or None,
+    })
+    return info
+
+
+def get_cookies_health() -> Dict:
+    """Copia del último estado conocido de las cookies (para la API)."""
+    return dict(COOKIES_HEALTH)
+
+
+# Cookies que acreditan la sesión de Google. Si faltan, YouTube trata la
+# petición como anónima aunque el archivo tenga otras cookies de youtube.com.
+_SESSION_COOKIE_NAMES = ('SID', 'HSID', 'SSID', 'APISID', 'SAPISID', 'LOGIN_INFO')
+
+
+def get_cookies_target_path() -> str:
+    """Ruta donde se guardan las cookies que el usuario pega o sube."""
+    configured = (os.getenv('YOUTUBE_COOKIES_FILE', '') or '').strip()
+    if configured:
+        return configured
+    existing = get_cookies_file()
+    if existing:
+        return existing
+    return str(Path(__file__).resolve().parent / 'youtube_cookies.txt')
+
+
+def _cookies_json_to_netscape(items) -> list:
+    """Convierte la exportación JSON de extensiones tipo Cookie-Editor a líneas Netscape."""
+    lines = []
+    for c in items:
+        if not isinstance(c, dict) or not c.get('name'):
+            continue
+        domain = str(c.get('domain') or '').strip()
+        if not domain:
+            continue
+        host_only = c.get('hostOnly')
+        flag = 'FALSE' if host_only or not domain.startswith('.') else 'TRUE'
+        path = str(c.get('path') or '/')
+        secure = 'TRUE' if c.get('secure') else 'FALSE'
+        exp_raw = c.get('expirationDate', c.get('expires', 0)) or 0
+        try:
+            expiration = int(float(exp_raw))
+        except (TypeError, ValueError):
+            expiration = 0
+        prefix = '#HttpOnly_' if c.get('httpOnly') else ''
+        lines.append('\t'.join([
+            prefix + domain, flag, path, secure, str(expiration),
+            str(c.get('name')), str(c.get('value') or '')
+        ]))
+    return lines
+
+
+def parse_cookies_text(text: str) -> Dict:
+    """
+    Normaliza el texto pegado por el usuario a formato Netscape.
+
+    Acepta el formato Netscape (lo que copia "Get cookies.txt LOCALLY") y la
+    exportación JSON de otras extensiones.
+
+    Returns:
+        dict con 'content' (texto Netscape listo para guardar), 'count',
+        'youtube_count', 'session_found' (lista) y 'warnings' (lista).
+    Raises:
+        ValueError si el texto no parece un archivo de cookies.
+    """
+    raw = (text or '').replace('\r\n', '\n').replace('\r', '\n').strip()
+    if not raw:
+        raise ValueError('No has pegado nada.')
+
+    cookie_lines = []
+    if raw.startswith('[') or raw.startswith('{'):
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError(f'El texto parece JSON pero no se puede leer: {e}')
+        if isinstance(data, dict):
+            data = data.get('cookies') or [data]
+        if not isinstance(data, list):
+            raise ValueError('El JSON no contiene una lista de cookies.')
+        cookie_lines = _cookies_json_to_netscape(data)
+    else:
+        bad = 0
+        for line in raw.split('\n'):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith('#') and not stripped.startswith('#HttpOnly_'):
+                continue  # comentario / cabecera
+            fields = line.rstrip('\n').split('\t')
+            if len(fields) == 6:
+                fields.append('')  # cookie con valor vacío
+            if len(fields) != 7 or fields[1].upper() not in ('TRUE', 'FALSE'):
+                bad += 1
+                continue
+            cookie_lines.append('\t'.join(fields))
+        if bad and not cookie_lines:
+            raise ValueError(
+                'El texto no está en formato Netscape (una cookie por línea, campos separados por '
+                'tabulador). Copia desde la extensión con el botón "Copy" o exporta como cookies.txt.'
+            )
+
+    if not cookie_lines:
+        raise ValueError('No se ha encontrado ninguna cookie en el texto pegado.')
+
+    youtube = [l for l in cookie_lines if 'youtube.com' in l.split('\t')[0].lower()]
+    names = {l.split('\t')[5] for l in youtube}
+    session_found = [n for n in _SESSION_COOKIE_NAMES if n in names]
+
+    warnings = []
+    if not youtube:
+        warnings.append('No hay ninguna cookie de youtube.com: ¿has copiado las cookies estando en YouTube o YouTube Music?')
+    else:
+        missing = [n for n in _SESSION_COOKIE_NAMES if n not in names]
+        if missing:
+            warnings.append(
+                'Faltan cookies de sesión (' + ', '.join(missing) + '). Puede que el navegador no tenga '
+                'la sesión iniciada o que la extensión haya exportado sólo una parte: YouTube podría '
+                'seguir sin reconocerte.'
+            )
+
+    header = ['# Netscape HTTP Cookie File',
+              f'# Guardado desde la web de DJ scripts el {datetime.now().isoformat(timespec="seconds")}',
+              '']
+    return {
+        'content': '\n'.join(header + cookie_lines) + '\n',
+        'count': len(cookie_lines),
+        'youtube_count': len(youtube),
+        'session_found': session_found,
+        'warnings': warnings,
+    }
+
+
+def save_cookies_text(text: str) -> Dict:
+    """
+    Guarda las cookies pegadas por el usuario como archivo maestro (0600, escritura atómica).
+
+    La copia de trabajo `_runtime` se regenera sola en la siguiente petición al
+    detectar que el maestro ha cambiado. Devuelve lo mismo que parse_cookies_text
+    más 'path'.
+    """
+    parsed = parse_cookies_text(text)
+    target = Path(get_cookies_target_path())
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + '.tmp')
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            fh.write(parsed['content'])
+        os.chmod(str(tmp), 0o600)
+        os.replace(str(tmp), str(target))
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+    # Estado desconocido hasta que se prueben
+    COOKIES_HEALTH.update({
+        'ok': None, 'kind': None, 'title': None, 'hint': None, 'error': None,
+        'source': str(target), 'checked_at': None, 'url': None,
+    })
+    result = dict(parsed)
+    result.pop('content', None)
+    result['path'] = str(target)
+    return result
+
+
+class CollectingYdlLogger:
+    """
+    Logger para yt-dlp que guarda los errores en memoria y los sigue
+    imprimiendo en el log del servidor. Sin él, los `ERROR:` de yt-dlp sólo
+    van a stderr y la app no puede saber por qué una playlist vino vacía.
+    """
+
+    def __init__(self):
+        self.errors = []
+        self.warnings = []
+
+    def debug(self, msg):
+        # yt-dlp manda aquí también los mensajes "info"; en modo quiet no interesan
+        pass
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        msg = str(msg)
+        self.warnings.append(msg)
+        print(msg if msg.startswith('WARNING:') else f"WARNING: {msg}")
+
+    def error(self, msg):
+        msg = str(msg)
+        self.errors.append(msg)
+        print(msg if msg.startswith('ERROR:') else f"ERROR: {msg}")
+
+    @property
+    def text(self) -> str:
+        return '\n'.join(self.errors + self.warnings)
 
 
 def test_cookies() -> bool:
@@ -2712,7 +3138,10 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
     """
     if not has_cookies_configured():
         print("⚠️  No se encontró configuración de cookies (navegador ni archivo).")
+        record_cookies_result(False, '', playlist_url)
         return []
+
+    ydl_logger = CollectingYdlLogger()
 
     # Calcular el rango de elementos a obtener
     # start_index es 1-based, así que si queremos 10 canciones desde el índice 1, obtenemos 1-10
@@ -2727,6 +3156,7 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
         'extract_flat': 'in_playlist',
         'playlistend': end_index,  # Limitar hasta el final del rango
         'ignoreerrors': True,  # Continuar aunque algunos videos fallen
+        'logger': ydl_logger,
     }
     apply_cookies_to_opts(ydl_opts)
 
@@ -2747,6 +3177,7 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
             
             if not info:
                 print(f"[{time.strftime('%H:%M:%S')}] ❌ No se pudieron obtener videos de la playlist")
+                _report_playlist_failure(ydl_logger, playlist_url)
                 return []
             
             print(f"[{time.strftime('%H:%M:%S')}]    Procesando entries...")
@@ -2786,6 +3217,7 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
                     'no_warnings': True,
                     'playlistend': end_index,
                     'ignoreerrors': True,  # Continuar aunque algunos videos fallen
+                    'logger': ydl_logger,
                 }
                 apply_cookies_to_opts(ydl_opts_full)
                 if playlist_items:
@@ -2811,9 +3243,11 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
             
             if not entries:
                 print(f"[{time.strftime('%H:%M:%S')}] ❌ No se pudieron obtener videos de la playlist")
+                _report_playlist_failure(ydl_logger, playlist_url)
                 return []
             
             print(f"[{time.strftime('%H:%M:%S')}] ✓ Se encontraron {len(entries)} entradas en la playlist")
+            record_cookies_result(True, '', playlist_url)
             
             videos = []
             
@@ -2869,7 +3303,18 @@ def get_liked_videos_from_url(playlist_url: str, limit: int = 10, start_index: i
         print(f"[{time.strftime('%H:%M:%S')}] ❌ Error al obtener videos después de {elapsed:.2f}s: {e}")
         import traceback
         traceback.print_exc()
+        _report_playlist_failure(ydl_logger, playlist_url, str(e))
         return []
+
+
+def _report_playlist_failure(ydl_logger: 'CollectingYdlLogger', playlist_url: str, extra: str = '') -> None:
+    """Registra en COOKIES_HEALTH por qué la playlist vino vacía y lo deja claro en el log."""
+    import time
+    error_text = '\n'.join(t for t in (ydl_logger.text, extra) if t)
+    info = record_cookies_result(False, error_text, playlist_url)
+    if info:
+        print(f"[{time.strftime('%H:%M:%S')}] 🍪 {info['title']}")
+        print(f"    💡 {info['hint']}")
 
 
 def get_liked_videos(limit: int = 10) -> list:

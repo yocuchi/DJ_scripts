@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dj-scripts-v1';
+const CACHE_NAME = 'dj-scripts-v2';
 
 // Solo cacheamos el shell de la app (HTML+assets estáticos)
 // Las llamadas a la API siempre van a la red
@@ -23,9 +23,16 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Las llamadas a la API siempre van a la red (nunca caché)
+  // La API no se toca: dejamos que el navegador la gestione directamente.
+  // Es importante para el audio del reproductor (/api/database/file), que usa
+  // peticiones Range: si el SW las intermedia se rompe el salto en la pista y
+  // la reproducción en segundo plano.
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // Las peticiones con rango (audio/vídeo) tampoco pasan por caché
+  if (event.request.headers.has('range')) {
     return;
   }
 
@@ -33,7 +40,8 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        if (response.ok) {
+        // cache.put() solo admite GET; además evitamos guardar respuestas opacas
+        if (event.request.method === 'GET' && response.ok && response.type === 'basic') {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         }

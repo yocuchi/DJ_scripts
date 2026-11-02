@@ -32,6 +32,8 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
+            /* Hueco para la barra superior fija del reproductor */
+            padding-top: calc(76px + env(safe-area-inset-top, 0px));
         }
         
         .container {
@@ -172,295 +174,259 @@
         }
         
         /* Los antiguos contenedores .log-container in-line se ocultan:
-           ahora todos los logs se vuelcan en el panel flotante de la derecha. */
+           la actividad se muestra en el dock inferior derecho. */
         .log-container {
             display: none !important;
         }
 
         /* ============================================================
-           PANEL FLOTANTE DE LOGS (derecha)
+           DOCK DE ACTIVIDAD (abajo derecha)
+           Badges de descargas + registro de texto plegable
            ============================================================ */
-        #floating-log-panel {
+        #activity-dock {
             position: fixed;
-            top: 80px;
-            right: 20px;
-            width: 460px;
-            max-width: calc(100vw - 40px);
-            height: calc(100vh - 120px);
-            background: #1a1a1a;
-            border: 1px solid #333;
-            border-radius: 10px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+            right: 16px;
+            bottom: 16px;
+            width: 380px;
+            max-width: calc(100vw - 32px);
+            background: #1c1c26;
+            border: 1px solid #2e2e3e;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
             z-index: 1500;
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            transition: width 0.25s ease, height 0.25s ease,
-                        top 0.25s ease, right 0.25s ease,
-                        transform 0.25s ease, opacity 0.2s ease;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
         }
-        #floating-log-panel.hidden {
-            transform: translateX(calc(100% + 30px));
-            opacity: 0;
-            pointer-events: none;
-        }
-        #floating-log-panel.minimized {
-            height: 44px;
-        }
-        #floating-log-panel.minimized .floating-log-body,
-        #floating-log-panel.minimized .floating-log-tabs {
+        #activity-dock.hidden {
             display: none;
         }
-        #floating-log-panel.maximized {
-            top: 20px;
-            right: 20px;
-            width: calc(100vw - 40px);
-            height: calc(100vh - 40px);
-        }
 
-        .floating-log-header {
+        /* Cabecera / tirador */
+        #activity-handle {
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 8px 12px;
-            background: linear-gradient(135deg, #2c2c3e 0%, #1f1f2e 100%);
-            color: #f0f0f0;
-            cursor: move;
-            -webkit-user-select: none;
-            user-select: none;
-            border-bottom: 1px solid #333;
-        }
-        .floating-log-header .floating-log-title {
-            flex: 1;
-            font-weight: bold;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .floating-log-header .floating-log-title .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #28a745;
-            box-shadow: 0 0 6px #28a745;
-        }
-        .floating-log-btn {
+            width: 100%;
+            padding: 9px 12px;
             background: transparent;
             border: none;
-            color: #ccc;
+            color: #e6e6f0;
+            font-size: 13px;
+            font-weight: 600;
             cursor: pointer;
-            font-size: 16px;
-            line-height: 1;
-            padding: 4px 8px;
-            border-radius: 4px;
-            transition: background 0.2s, color 0.2s;
+            text-align: left;
         }
-        .floating-log-btn:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
+        #activity-handle:hover {
+            background: rgba(255, 255, 255, 0.04);
         }
-
-        .floating-log-tabs {
-            display: flex;
-            gap: 4px;
-            padding: 6px 8px;
-            background: #232333;
-            border-bottom: 1px solid #2a2a3a;
-            overflow-x: auto;
-            flex-shrink: 0;
+        #activity-handle .ah-icon {
+            font-size: 14px;
         }
-        .floating-log-tab {
-            background: #2c2c3e;
-            color: #aaa;
-            border: 1px solid transparent;
-            padding: 4px 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            white-space: nowrap;
-            transition: all 0.2s;
-        }
-        .floating-log-tab:hover {
-            color: #fff;
-            background: #3a3a4e;
-        }
-        .floating-log-tab.active {
-            background: #667eea;
-            color: #fff;
-            border-color: #5568d3;
-        }
-        .floating-log-tab .tab-badge {
-            display: inline-block;
-            min-width: 16px;
-            padding: 0 5px;
-            margin-left: 4px;
-            background: #dc3545;
-            color: #fff;
-            border-radius: 8px;
-            font-size: 10px;
-            line-height: 14px;
-            text-align: center;
-            vertical-align: middle;
-        }
-
-        /* Spinner de actividad en el tab (cuando hay tarea en curso) */
-        .floating-log-tab .tab-spinner {
-            display: inline-block;
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            border: 2px solid rgba(255,255,255,0.25);
-            border-top-color: #aef;
-            animation: tab-spin 0.75s linear infinite;
-            margin-left: 5px;
-            vertical-align: middle;
-        }
-        @keyframes tab-spin { to { transform: rotate(360deg); } }
-
-        /* Cards de progreso de descarga */
-        #dl-cards-area {
-            padding: 6px 8px 2px;
-        }
-        #dl-cards-area:empty { display: none; }
-        .dl-card {
-            background: #1e2030;
-            border: 1px solid #2e3050;
-            border-radius: 6px;
-            padding: 7px 10px;
-            margin-bottom: 5px;
-            transition: border-color 0.3s, opacity 0.5s;
-        }
-        .dl-card.dl-done  { border-color: #1d4731; }
-        .dl-card.dl-error { border-color: #4a1a1a; }
-        .dl-card.dl-fading { opacity: 0; }
-        .dl-card-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            margin-bottom: 4px;
-        }
-        .dl-card-title {
+        #activity-handle .ah-label {
             flex: 1;
-            font-size: 11px;
-            color: #ccc;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-family: 'Segoe UI', sans-serif;
         }
-        .dl-card-pct {
-            font-size: 11px;
-            color: #aaa;
-            font-family: monospace;
-            min-width: 34px;
-            text-align: right;
-        }
-        .dl-card.dl-done  .dl-card-pct { color: #4caf50; }
-        .dl-card.dl-error .dl-card-pct { color: #f44336; }
-        .dl-bar-wrap {
-            height: 4px;
-            background: #2a2a3a;
-            border-radius: 2px;
-            overflow: hidden;
-            margin-bottom: 3px;
-        }
-        .dl-bar-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            border-radius: 2px;
-            transition: width 0.4s ease;
-            width: 0%;
-        }
-        .dl-card.dl-done  .dl-bar-fill { background: #28a745; width: 100% !important; }
-        .dl-card.dl-error .dl-bar-fill { background: #dc3545; }
-        .dl-card-meta {
-            font-size: 10px;
-            color: #555;
-            font-family: monospace;
-        }
-        /* Área de texto dentro de cada log-section */
-        .log-text { white-space: pre-wrap; }
-
-        .floating-log-body {
-            flex: 1;
-            min-height: 0;
-            background: #000;
-            color: #0f0;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            white-space: pre-wrap;
-            overflow-y: auto;
-            padding: 10px 12px;
-        }
-        .floating-log-body .log-section {
-            display: none;
-        }
-        .floating-log-body .log-section.active {
-            display: block;
-        }
-        .floating-log-body:empty::before,
-        .floating-log-body .log-section.active:empty::before {
-            content: "— Sin actividad todavía —";
-            color: #555;
-            font-style: italic;
-        }
-
-        /* Botón flotante para reabrir el panel cuando está oculto */
-        #floating-log-toggle {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #fff;
-            border: none;
-            cursor: pointer;
-            font-size: 22px;
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-            z-index: 1499;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        #floating-log-toggle:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-        }
-        #floating-log-toggle.visible {
-            display: flex;
-        }
-        #floating-log-toggle .toggle-badge {
-            position: absolute;
-            top: -4px;
-            right: -4px;
+        #activity-handle .ah-count {
             min-width: 20px;
-            height: 20px;
-            padding: 0 5px;
-            background: #dc3545;
+            padding: 1px 7px;
+            background: #667eea;
             color: #fff;
             border-radius: 10px;
             font-size: 11px;
-            font-weight: bold;
-            line-height: 20px;
+            line-height: 16px;
             text-align: center;
+        }
+        #activity-handle .ah-count.hidden {
             display: none;
         }
-        #floating-log-toggle .toggle-badge.visible {
-            display: block;
+        #activity-handle .ah-chevron {
+            color: #8a8aa0;
+            font-size: 11px;
+            transition: transform 0.2s ease;
+        }
+        #activity-dock:not(.collapsed) #activity-handle .ah-chevron {
+            transform: rotate(180deg);
+        }
+        /* Spinner de tarea en curso */
+        #activity-handle .ah-spinner {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #9fb6ff;
+            animation: ah-spin 0.8s linear infinite;
+            display: none;
+        }
+        #activity-dock.busy #activity-handle .ah-spinner {
+            display: inline-block;
+        }
+        @keyframes ah-spin { to { transform: rotate(360deg); } }
+
+        /* Tira de badges: siempre visible, también con el dock plegado */
+        #dl-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 0 10px 10px;
+            max-height: 132px;
+            overflow-y: auto;
+        }
+        #dl-badges:empty {
+            display: none;
         }
 
-        /* En pantallas pequeñas, el panel ocupa más espacio */
-        @media (max-width: 900px) {
-            #floating-log-panel {
-                width: calc(100vw - 24px);
-                right: 12px;
-                top: 12px;
-                height: 60vh;
+        .dl-badge {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            max-width: 100%;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #26263a;
+            border: 1px solid #383850;
+            color: #cfcfe4;
+            font-size: 11.5px;
+            line-height: 16px;
+            overflow: hidden;
+            transition: background 0.25s, border-color 0.25s, opacity 0.4s;
+        }
+        /* Relleno de progreso detrás del texto */
+        .dl-badge .dlb-fill {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 0%;
+            background: linear-gradient(90deg, #4c5fd7, #7a5ad0);
+            opacity: 0.45;
+            transition: width 0.4s ease;
+        }
+        .dl-badge > .dlb-ico,
+        .dl-badge > .dlb-name,
+        .dl-badge > .dlb-pct {
+            position: relative;
+            z-index: 1;
+        }
+        .dl-badge .dlb-name {
+            max-width: 210px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .dl-badge .dlb-pct {
+            font-variant-numeric: tabular-nums;
+            color: #9a9ab4;
+            font-size: 10.5px;
+        }
+        .dl-badge.is-queued { border-color: #5a4a1e; color: #e6d9a8; }
+        .dl-badge.is-queued .dlb-fill { background: #856404; opacity: 0.35; }
+        .dl-badge.is-done {
+            background: #17301f;
+            border-color: #2c6b41;
+            color: #a6e7bd;
+        }
+        .dl-badge.is-done .dlb-fill { display: none; }
+        .dl-badge.is-done .dlb-pct { color: #6fc98d; }
+        .dl-badge.is-error {
+            background: #301a1c;
+            border-color: #7a2b31;
+            color: #f0aab0;
+        }
+        .dl-badge.is-error .dlb-fill { display: none; }
+        .dl-badge.is-error .dlb-pct { color: #e0727c; }
+        .dl-badge.is-unavailable {
+            background: #2e2616;
+            border-color: #8a6d1f;
+            color: #f1d38a;
+        }
+        .dl-badge.is-unavailable .dlb-pct { color: #e6b84d; }
+        .dl-badge.is-fading { opacity: 0; }
+
+        /* Cuerpo plegable: registro de texto */
+        .dock-body {
+            border-top: 1px solid #2a2a3a;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        #activity-dock.collapsed .dock-body {
+            display: none;
+        }
+        .dock-log-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 12px;
+            font-size: 11px;
+            color: #7c7c92;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .dock-log-head button {
+            background: transparent;
+            border: 1px solid #383850;
+            color: #9a9ab4;
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .dock-log-head button:hover {
+            color: #fff;
+            border-color: #5a5a78;
+        }
+        #dock-log {
+            max-height: 40vh;
+            overflow-y: auto;
+            padding: 4px 12px 12px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11.5px;
+            line-height: 1.5;
+            color: #b9b9cc;
+        }
+        #dock-log:empty::before {
+            content: "Sin actividad todavía";
+            color: #55556a;
+            font-style: italic;
+        }
+        .log-line {
+            display: flex;
+            gap: 7px;
+            align-items: baseline;
+            padding: 1px 0;
+        }
+        .log-line .ll-time {
+            color: #55556a;
+            flex-shrink: 0;
+            font-size: 10.5px;
+        }
+        .log-line .ll-tag {
+            flex-shrink: 0;
+            font-size: 9.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #8f8fae;
+            border: 1px solid #35354a;
+            border-radius: 4px;
+            padding: 0 4px;
+        }
+        .log-line .ll-msg {
+            white-space: pre-wrap;
+            word-break: break-word;
+            flex: 1;
+        }
+        .log-line.is-error .ll-msg { color: #f0919a; }
+        .log-line.is-ok .ll-msg { color: #8fd9a8; }
+
+        @media (max-width: 700px) {
+            #activity-dock {
+                right: 8px;
+                left: 8px;
+                bottom: 8px;
+                width: auto;
+                max-width: none;
             }
+            .dl-badge .dlb-name { max-width: 150px; }
         }
 
         /* Pestaña Base de datos: tabla con scroll, ya no necesita reservar
@@ -517,6 +483,37 @@
         .song-item.rejected {
             background: #f8d7da;
             border-color: #f5c6cb;
+        }
+
+        /* Vídeo desaparecido de YouTube: se ignora solo y se avisa en la fila */
+        .song-item.unavailable {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            opacity: 0.8;
+        }
+        .song-item.unavailable .song-title { text-decoration: line-through; }
+        .unavail-note {
+            margin-top: 8px;
+            font-size: 13px;
+            font-weight: bold;
+            color: #842029;
+        }
+
+        /* Otra versión de la canción propuesta por la app */
+        .song-item.suggestion {
+            background: #fff8e1;
+            border: 2px dashed #ffb300;
+            margin-left: 28px;
+        }
+        .suggestion-tag {
+            display: inline-block;
+            margin-bottom: 6px;
+            padding: 2px 10px;
+            border-radius: 12px;
+            background: #ffb300;
+            color: #3b2a00;
+            font-size: 12px;
+            font-weight: bold;
         }
         
         .thumbnail-container {
@@ -1188,221 +1185,132 @@
         }
 
         /* ============================================================
-           MODO RADIO (reproductor flotante - izquierda)
+           MODO RADIO — barra superior fija
            ============================================================ */
-        #radio-player {
+        #radio-bar {
             position: fixed;
-            bottom: 24px;
-            left: 24px;
-            width: 360px;
-            max-width: calc(100vw - 48px);
-            background: #1a1a1a;
-            border: 1px solid #333;
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-            color: #f0f0f0;
-            z-index: 1500;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            transition: transform 0.25s ease, opacity 0.2s ease, height 0.25s ease;
-        }
-        #radio-player.hidden {
-            transform: translateX(calc(-100% - 30px));
-            opacity: 0;
-            pointer-events: none;
-        }
-        #radio-player.minimized .radio-body {
-            display: none;
-        }
-        .radio-header {
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 56px;
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            background: linear-gradient(135deg, #2c2c3e 0%, #1f1f2e 100%);
-            border-bottom: 1px solid #333;
-            -webkit-user-select: none;
-            user-select: none;
+            gap: 12px;
+            padding: 0 14px;
+            background: linear-gradient(135deg, #22223a 0%, #2c2145 100%);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+            color: #f0f0f6;
+            z-index: 1600;
+            /* Deja hueco a la barra de estado en PWA instalada (iOS) */
+            padding-top: env(safe-area-inset-top, 0px);
+            height: calc(56px + env(safe-area-inset-top, 0px));
         }
-        .radio-header .radio-title {
-            flex: 1;
-            font-weight: bold;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .radio-header .radio-title .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #888;
-            transition: background 0.2s, box-shadow 0.2s;
-        }
-        #radio-player.is-playing .radio-header .radio-title .dot {
-            background: #28a745;
-            box-shadow: 0 0 6px #28a745;
-            animation: radio-pulse 1.6s ease-in-out infinite;
-        }
-        @keyframes radio-pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.45; }
-        }
-        .radio-btn {
-            background: transparent;
-            border: none;
-            color: #ccc;
-            cursor: pointer;
-            font-size: 16px;
-            line-height: 1;
-            padding: 4px 8px;
-            border-radius: 4px;
-            transition: background 0.2s, color 0.2s;
-        }
-        .radio-btn:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-        }
-        .radio-body {
-            padding: 14px 14px 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .radio-info {
-            min-height: 40px;
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-        .radio-info .radio-track-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: #fff;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .radio-info .radio-track-artist {
-            font-size: 12px;
-            color: #aaa;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .radio-info .radio-track-meta {
-            font-size: 11px;
-            color: #666;
-            margin-top: 2px;
-        }
-        .radio-controls {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-        }
-        .radio-controls .radio-ctrl {
+
+        .rb-cover {
             width: 38px;
             height: 38px;
-            border-radius: 50%;
-            background: #2c2c3e;
-            border: 1px solid #3a3a4e;
-            color: #f0f0f0;
-            cursor: pointer;
+            flex-shrink: 0;
+            border-radius: 6px;
+            background: #3a3a55;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 14px;
-            transition: background 0.2s, transform 0.1s;
+            font-size: 17px;
+            overflow: hidden;
         }
-        .radio-controls .radio-ctrl:hover:not(:disabled) {
-            background: #3a3a4e;
-        }
-        .radio-controls .radio-ctrl:active:not(:disabled) {
-            transform: scale(0.95);
-        }
-        .radio-controls .radio-ctrl:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-        .radio-controls .radio-ctrl.radio-ctrl-play {
-            width: 48px;
-            height: 48px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-color: #5568d3;
-            font-size: 18px;
-        }
-        .radio-controls .radio-ctrl.radio-ctrl-play:hover:not(:disabled) {
-            background: linear-gradient(135deg, #7187f0 0%, #855ab2 100%);
-        }
-        .radio-audio-row {
+        .rb-cover img {
             width: 100%;
-        }
-        .radio-audio-row audio {
-            width: 100%;
-            height: 32px;
-        }
-        .radio-status {
-            font-size: 11px;
-            color: #888;
-            text-align: center;
-            min-height: 14px;
-        }
-        .radio-status.error {
-            color: #ff6b6b;
-        }
-
-        /* Botón flotante para abrir el reproductor cuando está oculto */
-        #radio-toggle {
-            position: fixed;
-            bottom: 24px;
-            left: 24px;
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #fff;
-            border: none;
-            cursor: pointer;
-            font-size: 24px;
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-            z-index: 1499;
+            height: 100%;
+            object-fit: cover;
             display: none;
-            align-items: center;
-            justify-content: center;
-            transition: transform 0.2s, box-shadow 0.2s;
         }
-        #radio-toggle:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-        }
-        #radio-toggle.visible {
-            display: flex;
-        }
-        #radio-toggle.is-playing::after {
-            content: '';
-            position: absolute;
-            top: -2px;
-            right: -2px;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #28a745;
-            box-shadow: 0 0 8px #28a745;
-            animation: radio-pulse 1.6s ease-in-out infinite;
+        .rb-cover.has-art img { display: block; }
+        .rb-cover.has-art .rb-cover-ph { display: none; }
+        #radio-bar.is-playing .rb-cover {
+            box-shadow: 0 0 0 2px rgba(120, 150, 255, 0.55);
         }
 
-        @media (max-width: 900px) {
-            #radio-player {
-                width: calc(100vw - 24px);
-                left: 12px;
-                bottom: 12px;
-            }
-            #radio-toggle {
-                left: 12px;
-                bottom: 12px;
-            }
+        .rb-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .rb-title {
+            font-size: 13.5px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .rb-artist {
+            font-size: 11.5px;
+            color: #a9a9c4;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .rb-artist.error { color: #ef8f98; }
+
+        .rb-time {
+            font-size: 11px;
+            color: #8f8fae;
+            font-variant-numeric: tabular-nums;
+            flex-shrink: 0;
+        }
+
+        .rb-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .rb-btn {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            color: #e8e8f4;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.18s, transform 0.12s;
+        }
+        .rb-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+        .rb-btn:active:not(:disabled) { transform: scale(0.93); }
+        .rb-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+        .rb-btn.rb-play {
+            width: 38px;
+            height: 38px;
+            font-size: 16px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-color: transparent;
+        }
+        .rb-btn.rb-play:hover:not(:disabled) { filter: brightness(1.12); }
+
+        /* Barra de progreso pegada al borde inferior de la barra */
+        .rb-progress {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.09);
+            cursor: pointer;
+        }
+        .rb-progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #667eea, #a56fd6);
+            transition: width 0.2s linear;
+        }
+
+        @media (max-width: 640px) {
+            #radio-bar { gap: 8px; padding-left: 10px; padding-right: 10px; }
+            .rb-time { display: none; }
+            .rb-cover { width: 34px; height: 34px; }
         }
 
         /* ============================================================
@@ -1439,6 +1347,63 @@
         }
         .ffmpeg-banner-install-block {
             margin-top: 10px;
+        }
+        /* Variante de aviso grave (cookies de YouTube caducadas) */
+        .ffmpeg-banner.banner-danger {
+            background: #f8d7da;
+            border-bottom-color: #dc3545;
+        }
+        .ffmpeg-banner.banner-danger .ffmpeg-banner-title {
+            color: #721c24;
+        }
+        .ffmpeg-banner.banner-danger .ffmpeg-banner-text {
+            color: #5a1a21;
+        }
+        .ffmpeg-banner.banner-danger details {
+            margin-top: 8px;
+            font-size: 0.9em;
+            color: #5a1a21;
+        }
+        .ffmpeg-banner.banner-danger pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+            background: rgba(255, 255, 255, 0.5);
+            padding: 8px;
+            border-radius: 4px;
+            margin: 6px 0 0;
+        }
+        /* Punto rojo en la pestaña cuando hay un problema que atender */
+        .tab .tab-alert-dot {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            margin-left: 6px;
+            border-radius: 50%;
+            background: #dc3545;
+            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7);
+            vertical-align: middle;
+        }
+        /* Aviso dentro de la lista de la playlist */
+        .playlist-cookies-error {
+            margin: 20px auto;
+            max-width: 720px;
+            padding: 18px 20px;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 10px;
+            color: #721c24;
+        }
+        .playlist-cookies-error h3 {
+            margin: 0 0 8px;
+            font-size: 1.1em;
+        }
+        .playlist-cookies-error p {
+            margin: 0 0 10px;
+        }
+        .playlist-cookies-error .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
         }
         .ffmpeg-banner-actions {
             display: flex;
@@ -2053,71 +2018,46 @@
     </style>
 </head>
 <body>
-    <!-- Panel flotante de logs (derecha) -->
-    <div id="floating-log-panel" aria-label="Consola de actividad">
-        <div class="floating-log-header" id="floating-log-header">
-            <div class="floating-log-title">
-                <span class="dot"></span>
-                <span>📜 Consola</span>
-            </div>
-            <button type="button" class="floating-log-btn" id="btn-log-clear" title="Limpiar pestaña actual">🧹</button>
-            <button type="button" class="floating-log-btn" id="btn-log-minimize" title="Minimizar / restaurar">_</button>
-            <button type="button" class="floating-log-btn" id="btn-log-maximize" title="Maximizar / restaurar">⛶</button>
-            <button type="button" class="floating-log-btn" id="btn-log-close" title="Ocultar panel">✕</button>
+    <!-- Modo Radio: barra superior fija -->
+    <div id="radio-bar" aria-label="Reproductor de radio">
+        <div class="rb-cover" id="rb-cover">
+            <span class="rb-cover-ph">📻</span>
+            <img id="rb-cover-img" alt="">
         </div>
-        <div class="floating-log-tabs" id="floating-log-tabs">
-            <button type="button" class="floating-log-tab active" data-log-tab="download">📥 Descargar</button>
-            <button type="button" class="floating-log-tab" data-log-tab="database">💾 BD</button>
-            <button type="button" class="floating-log-tab" data-log-tab="playlist">🎵 Playlist</button>
-            <button type="button" class="floating-log-tab" data-log-tab="import">📁 Importar</button>
-            <button type="button" class="floating-log-tab" data-log-tab="testing">🧪 Testing</button>
-            <button type="button" class="floating-log-tab" data-log-tab="config">⚙️ Config</button>
+        <div class="rb-info">
+            <div class="rb-title" id="rb-title">Radio</div>
+            <div class="rb-artist" id="rb-artist">Pulsa ▶ para empezar</div>
         </div>
-        <div class="floating-log-body" id="floating-log-body">
-            <div class="log-section active" data-log-section="download"><div id="dl-cards-area"></div></div>
-            <div class="log-section" data-log-section="database"></div>
-            <div class="log-section" data-log-section="playlist"></div>
-            <div class="log-section" data-log-section="import"></div>
-            <div class="log-section" data-log-section="testing"></div>
-            <div class="log-section" data-log-section="config"></div>
+        <div class="rb-time" id="rb-time">0:00 / 0:00</div>
+        <div class="rb-controls">
+            <button type="button" class="rb-btn" id="rb-prev" title="Anterior" disabled>⏮</button>
+            <button type="button" class="rb-btn rb-play" id="rb-play" title="Play / Pause">▶</button>
+            <button type="button" class="rb-btn" id="rb-next" title="Siguiente" disabled>⏭</button>
         </div>
+        <div class="rb-progress" id="rb-progress" title="Click para saltar">
+            <div class="rb-progress-fill" id="rb-progress-fill"></div>
+        </div>
+        <audio id="radio-mini-audio" preload="none" playsinline></audio>
     </div>
 
-    <!-- Botón flotante para reabrir el panel cuando está oculto -->
-    <button type="button" id="floating-log-toggle" title="Mostrar consola">
-        📜
-        <span class="toggle-badge" id="floating-log-toggle-badge">0</span>
-    </button>
-
-    <!-- Modo Radio: reproductor flotante (izquierda) -->
-    <div id="radio-player" class="hidden" aria-label="Modo Radio">
-        <div class="radio-header">
-            <div class="radio-title">
-                <span class="dot"></span>
-                <span>📻 Radio</span>
+    <!-- Dock de actividad: badges de descargas + registro -->
+    <div id="activity-dock" class="collapsed" aria-label="Actividad">
+        <button type="button" id="activity-handle" aria-expanded="false">
+            <span class="ah-icon">📥</span>
+            <span class="ah-label">Actividad</span>
+            <span class="ah-spinner"></span>
+            <span class="ah-count hidden" id="activity-count">0</span>
+            <span class="ah-chevron">▾</span>
+        </button>
+        <div id="dl-badges"></div>
+        <div class="dock-body">
+            <div class="dock-log-head">
+                <span>Registro</span>
+                <button type="button" id="btn-log-clear">Limpiar</button>
             </div>
-            <button type="button" class="radio-btn" id="btn-radio-minimize" title="Minimizar / restaurar">_</button>
-            <button type="button" class="radio-btn" id="btn-radio-close" title="Ocultar reproductor">✕</button>
-        </div>
-        <div class="radio-body">
-            <div class="radio-info">
-                <div class="radio-track-title" id="radio-track-title">— Sin canción cargada —</div>
-                <div class="radio-track-artist" id="radio-track-artist">Pulsa ▶ para empezar</div>
-                <div class="radio-track-meta" id="radio-track-meta"></div>
-            </div>
-            <div class="radio-controls">
-                <button type="button" class="radio-ctrl radio-ctrl-play" id="btn-radio-play" title="Play / Pause">▶</button>
-                <button type="button" class="radio-ctrl" id="btn-radio-next" title="Siguiente canción">⏭</button>
-            </div>
-            <div class="radio-audio-row">
-                <audio id="radio-mini-audio" preload="none"></audio>
-            </div>
-            <div class="radio-status" id="radio-mini-status"></div>
+            <div id="dock-log"></div>
         </div>
     </div>
-
-    <!-- Botón flotante para abrir el reproductor de radio -->
-    <button type="button" id="radio-toggle" title="Abrir modo Radio">📻</button>
 
     <div class="container">
         <div class="header">
@@ -2151,6 +2091,33 @@
                 </div>
             </div>
             <div id="ffmpeg-install-status" class="ffmpeg-install-status"></div>
+        </div>
+
+        <!-- Banner de cookies de YouTube (oculto por defecto; aparece cuando YouTube rechaza la sesión) -->
+        <div id="cookies-alert-banner" class="ffmpeg-banner banner-danger" style="display:none;" role="alert">
+            <div class="ffmpeg-banner-row">
+                <span class="ffmpeg-banner-icon">🍪</span>
+                <div class="ffmpeg-banner-content">
+                    <strong class="ffmpeg-banner-title" id="cookies-alert-title">Las cookies de YouTube han caducado</strong>
+                    <p class="ffmpeg-banner-text" id="cookies-alert-text"></p>
+                    <p class="ffmpeg-banner-text" id="cookies-alert-meta" style="font-size:0.85em; opacity:0.8;"></p>
+                    <details id="cookies-alert-details" style="display:none;">
+                        <summary>Detalle del error de yt-dlp</summary>
+                        <pre id="cookies-alert-raw"></pre>
+                    </details>
+                </div>
+                <div class="ffmpeg-banner-actions">
+                    <button class="btn btn-warning" id="cookies-alert-retry" onclick="CookiesAlert.recheck()">
+                        🔄 Volver a probar
+                    </button>
+                    <button class="btn btn-primary" onclick="CookiesAlert.goToConfig()">
+                        📋 Pegar cookies nuevas
+                    </button>
+                    <button class="btn btn-secondary" onclick="CookiesAlert.hide()">
+                        Ocultar aviso
+                    </button>
+                </div>
+            </div>
         </div>
 
         <div class="tabs">
@@ -2463,11 +2430,26 @@
                     y <strong>no vuelvas a usar ese perfil</strong> después (YouTube rota las cookies si lo detecta).
                 </p>
 
-                <div class="control-group mt-10">
+                <div class="control-group mt-15" style="align-items:flex-start;">
+                    <label for="config-cookies-paste">📋 Pegar cookies:</label>
+                    <textarea id="config-cookies-paste" rows="6" spellcheck="false"
+                              placeholder="Pega aquí el contenido que copia la extensión de cookies (formato cookies.txt / Netscape, o JSON). Se guardará en el servidor y se probará al momento."
+                              style="font-family: monospace; font-size: 12px; width: 100%;"></textarea>
+                </div>
+                <p class="text-muted-xs">
+                    Con "Get cookies.txt LOCALLY": abre music.youtube.com con la sesión iniciada, pulsa la extensión,
+                    luego <strong>Copy</strong> y pega aquí. El texto se guarda en el servidor con permisos de sólo lectura para la app
+                    y no sale de esta máquina.
+                </p>
+                <div class="control-group mt-10" style="gap:8px; flex-wrap:wrap;">
+                    <button class="btn btn-success" onclick="saveCookiesText()" id="config-cookies-save-btn">
+                        💾 Guardar cookies y probar
+                    </button>
                     <button class="btn btn-warning" onclick="testCookies()" id="config-cookies-test-btn">
                         🧪 Probar cookies con la playlist "LM"
                     </button>
                 </div>
+                <div id="config-cookies-save-result" class="mt-10"></div>
                 <div id="config-cookies-test-result" class="mt-10"></div>
             </div>
             <div class="info-panel-success">
@@ -2563,6 +2545,138 @@
                 setTimeout(() => { try { radioDrawWaveform(); radioUpdateProgress(); } catch (_) {} }, 30);
             }
         }
+
+        // ============================================================
+        // CONTROLES MULTIMEDIA DEL SISTEMA (Media Session API)
+        // Hay dos reproductores (la barra superior y el de la pestaña Radio) y
+        // el sistema solo admite una sesión: gana el último que empieza a sonar.
+        // Esto es lo que hace que los botones de play/pausa/siguiente del móvil,
+        // los auriculares o la pantalla de bloqueo controlen la reproducción
+        // cuando la PWA está minimizada.
+        // ============================================================
+        const MediaControls = (() => {
+            const supported = 'mediaSession' in navigator;
+            const players = new Map();   // id -> { audio, next, prev }
+            let ownerId = null;
+            let handlersBound = false;
+
+            function owner() {
+                return ownerId ? players.get(ownerId) : null;
+            }
+
+            function bindHandlers() {
+                if (!supported || handlersBound) return;
+                const actions = {
+                    play: () => { const o = owner(); if (o) o.audio.play().catch(() => {}); },
+                    pause: () => { const o = owner(); if (o) o.audio.pause(); },
+                    stop: () => {
+                        const o = owner();
+                        if (!o) return;
+                        o.audio.pause();
+                        o.audio.currentTime = 0;
+                    },
+                    nexttrack: () => { const o = owner(); if (o && o.next) o.next(); },
+                    previoustrack: () => { const o = owner(); if (o && o.prev) o.prev(); },
+                    seekbackward: (d) => {
+                        const o = owner();
+                        if (o) o.audio.currentTime = Math.max(0, o.audio.currentTime - (d.seekOffset || 10));
+                    },
+                    seekforward: (d) => {
+                        const o = owner();
+                        if (!o) return;
+                        const dur = o.audio.duration || 0;
+                        o.audio.currentTime = Math.min(dur, o.audio.currentTime + (d.seekOffset || 10));
+                    },
+                    seekto: (d) => {
+                        const o = owner();
+                        if (!o) return;
+                        if (d.fastSeek && o.audio.fastSeek) o.audio.fastSeek(d.seekTime);
+                        else o.audio.currentTime = d.seekTime;
+                        syncPosition(ownerId);
+                    }
+                };
+                for (const [action, handler] of Object.entries(actions)) {
+                    try {
+                        navigator.mediaSession.setActionHandler(action, handler);
+                    } catch (_) { /* acción no soportada en este navegador */ }
+                }
+                handlersBound = true;
+            }
+
+            function applyMetadata(meta) {
+                if (!supported || !meta) return;
+                const artworkUrl = meta.artworkUrl;
+                const artwork = artworkUrl
+                    ? [
+                        { src: artworkUrl, sizes: '512x512', type: 'image/jpeg' },
+                        { src: artworkUrl, sizes: '256x256', type: 'image/jpeg' },
+                        { src: artworkUrl, sizes: '96x96',  type: 'image/jpeg' }
+                      ]
+                    : [
+                        { src: '/static/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+                        { src: '/static/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' }
+                      ];
+                try {
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: meta.title || 'Radio DJ',
+                        artist: meta.artist || 'Desconocido',
+                        album: meta.album || 'Gestor de Música para DJ',
+                        artwork
+                    });
+                } catch (_) { /* MediaMetadata no disponible */ }
+            }
+
+            function register(id, { audio, next, prev }) {
+                if (!audio) return;
+                players.set(id, { audio, next, prev, meta: null });
+                bindHandlers();
+                audio.addEventListener('play', () => {
+                    // Solo un reproductor a la vez: el otro se pausa
+                    players.forEach((p, otherId) => {
+                        if (otherId !== id && !p.audio.paused) p.audio.pause();
+                    });
+                    // ...y el que suena se queda con los controles del sistema
+                    ownerId = id;
+                    applyMetadata(players.get(id).meta);
+                    if (supported) navigator.mediaSession.playbackState = 'playing';
+                    syncPosition(id);
+                });
+                audio.addEventListener('pause', () => {
+                    if (supported && ownerId === id) navigator.mediaSession.playbackState = 'paused';
+                });
+            }
+
+            // La ficha se guarda por reproductor y se publica cuando ese reproductor
+            // tiene los controles: así, al pedir una canción con el otro aún sonando,
+            // la ficha correcta aparece en cuanto se produce el relevo.
+            function setMetadata(id, meta) {
+                const p = players.get(id);
+                if (!p) return;
+                p.meta = meta || null;
+                if (!ownerId || ownerId === id) {
+                    ownerId = id;
+                    applyMetadata(p.meta);
+                }
+            }
+
+            function syncPosition(id) {
+                if (!supported || !navigator.mediaSession.setPositionState) return;
+                if (ownerId !== id) return;
+                const p = players.get(id);
+                if (!p) return;
+                const duration = p.audio.duration;
+                if (!isFinite(duration) || duration <= 0) return;
+                try {
+                    navigator.mediaSession.setPositionState({
+                        duration,
+                        playbackRate: p.audio.playbackRate || 1,
+                        position: Math.min(p.audio.currentTime || 0, duration)
+                    });
+                } catch (_) { /* rechazado mientras carga: irrelevante */ }
+            }
+
+            return { register, setMetadata, syncPosition };
+        })();
 
         // ============================================================
         // MODO RADIO
@@ -2671,6 +2785,9 @@
             const a = document.getElementById('radio-audio');
             if (!a) return null;
             Radio.audio = a;
+            // Controles multimedia del sistema (y pausa mutua con la barra superior)
+            MediaControls.register('tab', { audio: a, next: radioPlayNext });
+            a.addEventListener('timeupdate', () => MediaControls.syncPosition('tab'));
             // Auto-avance al terminar
             a.addEventListener('ended', () => radioPlayNext());
             // Si falla la reproducción, saltar a la siguiente (con un pequeño margen)
@@ -3003,6 +3120,7 @@
             Radio.current = next;
             const audio = radioGetAudio();
             radioRenderCurrent();
+            radioPublishMediaMetadata();
             if (!audio || !next) return;
             const token = ++Radio.loadToken;
             audio.src = `/api/database/file?path=${encodeURIComponent(next.file_path)}`;
@@ -3013,6 +3131,19 @@
                 radioSetStatus('Pulsa ▶ Play para reproducir (' + (err?.name || 'autoplay bloqueado') + ')', 'error');
             });
             radioUpdateCounter();
+        }
+
+        // Ficha de la canción para los controles del sistema (pantalla de bloqueo,
+        // auriculares, notificación del móvil) cuando suena el reproductor de la pestaña.
+        function radioPublishMediaMetadata() {
+            const s = Radio.current;
+            if (!s) return;
+            MediaControls.setMetadata('tab', {
+                title: s.title || '(sin título)',
+                artist: s.artist || 'Desconocido',
+                album: s.genre || 'Radio DJ',
+                artworkUrl: s.video_id ? `/api/database/song/${encodeURIComponent(s.video_id)}/cover` : null
+            });
         }
 
         function radioRenderCurrent() {
@@ -3292,6 +3423,7 @@
             Radio.current = song;
             const audio = radioGetAudio();
             radioRenderCurrent();
+            radioPublishMediaMetadata();
             if (audio && song.file_path) {
                 const token = ++Radio.loadToken;
                 audio.src = `/api/database/file?path=${encodeURIComponent(song.file_path)}`;
@@ -3354,256 +3486,158 @@
         }
         
         // ============================================================
-        // PANEL FLOTANTE DE LOGS
+        // DOCK DE ACTIVIDAD (registro simple + badges de descarga)
+        // Mantiene la API previa de FloatingLog para no tocar el resto del fichero.
         // ============================================================
         const FloatingLog = (() => {
-            const STORAGE_KEY = 'floatingLogPanelState_v1';
-            const VALID_TABS = ['download', 'database', 'playlist', 'import', 'testing', 'config'];
-            const TAB_LABELS = {
-                download: '📥 Descargar',
-                database: '💾 Base de datos',
-                playlist: '🎵 Playlist',
-                import: '📁 Importar',
-                testing: '🧪 Testing',
-                config: '⚙️ Config'
+            const STORAGE_KEY = 'activityDockState_v1';
+            const MAX_LINES = 400;
+            const TAG_LABELS = {
+                download: 'descarga',
+                database: 'bd',
+                playlist: 'playlist',
+                import: 'import',
+                testing: 'test',
+                config: 'config',
+                radio: 'radio'
             };
 
-            let panelEl, headerEl, bodyEl, tabsEl, toggleEl, toggleBadgeEl;
-            let activeTab = 'download';
-            const unreadCount = { download: 0, database: 0, playlist: 0, import: 0, testing: 0, config: 0 };
-            let savedState = { visible: true, minimized: true, maximized: false, activeTab: 'download' };
+            let dockEl, logEl, handleEl, countEl;
+            let collapsed = true;
+            let unread = 0;
+            const busyTabs = new Set();
+            // Evita repetir la misma línea del backend en sondeos consecutivos
+            const recentMessages = new Set();
 
             function loadState() {
                 try {
                     const raw = localStorage.getItem(STORAGE_KEY);
-                    if (raw) Object.assign(savedState, JSON.parse(raw));
+                    if (raw) {
+                        const saved = JSON.parse(raw);
+                        if (typeof saved.collapsed === 'boolean') collapsed = saved.collapsed;
+                    }
                 } catch (_) { /* ignorar */ }
-                // Política: el panel SIEMPRE arranca minimizado al cargar la página,
-                // independientemente del estado guardado en sesiones anteriores.
-                savedState.minimized = true;
-                savedState.maximized = false;
             }
-            function persistState() {
+            function persist() {
                 try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(savedState));
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({ collapsed }));
                 } catch (_) { /* ignorar */ }
             }
 
-            function setVisible(visible) {
-                savedState.visible = visible;
-                panelEl.classList.toggle('hidden', !visible);
-                toggleEl.classList.toggle('visible', !visible);
-                if (visible) {
-                    // Si lo abrimos por una acción, salimos de minimizado para que se vea
-                    if (savedState.minimized) {
-                        savedState.minimized = false;
-                        panelEl.classList.remove('minimized');
-                    }
-                    unreadCount[activeTab] = 0;
-                    refreshBadges();
-                }
-                persistState();
-            }
-            function toggleVisible() { setVisible(!savedState.visible); }
-
-            function setMinimized(min) {
-                savedState.minimized = min;
-                if (min) savedState.maximized = false;
-                panelEl.classList.toggle('minimized', min);
-                panelEl.classList.toggle('maximized', savedState.maximized);
-                persistState();
-            }
-            function toggleMinimized() { setMinimized(!savedState.minimized); }
-
-            function setMaximized(max) {
-                savedState.maximized = max;
-                if (max) savedState.minimized = false;
-                panelEl.classList.toggle('maximized', max);
-                panelEl.classList.toggle('minimized', savedState.minimized);
-                persistState();
-            }
-            function toggleMaximized() { setMaximized(!savedState.maximized); }
-
-            function setActiveTab(tabId) {
-                if (!VALID_TABS.includes(tabId)) return;
-                activeTab = tabId;
-                savedState.activeTab = tabId;
-                tabsEl.querySelectorAll('.floating-log-tab').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.logTab === tabId);
-                });
-                bodyEl.querySelectorAll('.log-section').forEach(sec => {
-                    sec.classList.toggle('active', sec.dataset.logSection === tabId);
-                });
-                unreadCount[tabId] = 0;
-                refreshBadges();
-                const sec = bodyEl.querySelector(`.log-section[data-log-section="${tabId}"]`);
-                if (sec) bodyEl.scrollTop = bodyEl.scrollHeight;
-                persistState();
-            }
-
-            function refreshBadges() {
-                let total = 0;
-                tabsEl.querySelectorAll('.floating-log-tab').forEach(btn => {
-                    const tab = btn.dataset.logTab;
-                    const n = unreadCount[tab] || 0;
-                    let badge = btn.querySelector('.tab-badge');
-                    if (n > 0 && tab !== activeTab) {
-                        if (!badge) {
-                            badge = document.createElement('span');
-                            badge.className = 'tab-badge';
-                            btn.appendChild(badge);
-                        }
-                        badge.textContent = n > 99 ? '99+' : String(n);
-                        total += n;
-                    } else if (badge) {
-                        badge.remove();
-                    }
-                });
-                if (toggleBadgeEl) {
-                    if (!savedState.visible && total > 0) {
-                        toggleBadgeEl.textContent = total > 99 ? '99+' : String(total);
-                        toggleBadgeEl.classList.add('visible');
-                    } else {
-                        toggleBadgeEl.classList.remove('visible');
-                    }
+            function applyCollapsed() {
+                if (!dockEl) return;
+                dockEl.classList.toggle('collapsed', collapsed);
+                handleEl.setAttribute('aria-expanded', String(!collapsed));
+                if (!collapsed) {
+                    unread = 0;
+                    refreshCount();
+                    logEl.scrollTop = logEl.scrollHeight;
                 }
             }
+            function setCollapsed(value) {
+                collapsed = !!value;
+                persist();
+                applyCollapsed();
+            }
 
-            function getSection(tabId) {
-                if (!VALID_TABS.includes(tabId)) tabId = 'download';
-                return bodyEl.querySelector(`.log-section[data-log-section="${tabId}"]`);
+            function refreshCount() {
+                if (!countEl) return;
+                countEl.textContent = unread > 99 ? '99+' : String(unread);
+                countEl.classList.toggle('hidden', unread === 0);
             }
 
             function append(tabId, message) {
-                const section = getSection(tabId);
-                if (!section) return;
-                const ts = new Date().toLocaleTimeString();
-                const wasAtBottom = (bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight) < 30;
-                let textEl = section.querySelector('.log-text');
-                if (!textEl) {
-                    textEl = document.createElement('div');
-                    textEl.className = 'log-text';
-                    section.appendChild(textEl);
-                }
-                textEl.textContent += `[${ts}] ${message}\n`;
-                if (tabId === activeTab && wasAtBottom) {
-                    bodyEl.scrollTop = bodyEl.scrollHeight;
-                }
-                if (tabId !== activeTab || !savedState.visible || savedState.minimized) {
-                    unreadCount[tabId] = (unreadCount[tabId] || 0) + 1;
-                    refreshBadges();
+                if (!logEl || message == null) return;
+                const text = String(message).replace(/^\n+/, '').trimEnd();
+                if (!text) return;
+
+                const line = document.createElement('div');
+                line.className = 'log-line';
+                if (/^[❌⚠]/.test(text) || /error/i.test(text)) line.classList.add('is-error');
+                else if (/^[✅✔]/.test(text)) line.classList.add('is-ok');
+
+                const time = document.createElement('span');
+                time.className = 'll-time';
+                time.textContent = new Date().toLocaleTimeString('es-ES', { hour12: false });
+
+                const tag = document.createElement('span');
+                tag.className = 'll-tag';
+                tag.textContent = TAG_LABELS[tabId] || tabId || 'app';
+
+                const msg = document.createElement('span');
+                msg.className = 'll-msg';
+                msg.textContent = text;
+
+                line.append(time, tag, msg);
+
+                const atBottom = (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 40;
+                logEl.appendChild(line);
+                while (logEl.childElementCount > MAX_LINES) logEl.removeChild(logEl.firstElementChild);
+                if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+
+                if (collapsed) {
+                    unread++;
+                    refreshCount();
                 }
             }
 
-            function clear(tabId) {
-                const section = getSection(tabId);
-                if (section) {
-                    const textEl = section.querySelector('.log-text');
-                    if (textEl) textEl.textContent = '';
-                    else {
-                        // Preservar el área de cards si existe
-                        const cards = section.querySelector('#dl-cards-area');
-                        section.textContent = '';
-                        if (cards) section.appendChild(cards);
-                    }
+            // Igual que append() pero ignora mensajes ya registrados (sondeos repetidos)
+            function appendUnique(tabId, message) {
+                const key = tabId + '::' + message;
+                if (recentMessages.has(key)) return;
+                recentMessages.add(key);
+                if (recentMessages.size > 600) {
+                    // Recortar los más antiguos (Set conserva el orden de inserción)
+                    const it = recentMessages.values();
+                    for (let i = 0; i < 200; i++) recentMessages.delete(it.next().value);
                 }
-                unreadCount[tabId] = 0;
-                refreshBadges();
+                append(tabId, message);
             }
 
-            function clearActive() { clear(activeTab); }
-
-            // Drag & drop sencillo del panel
-            function enableDrag() {
-                let dragging = false;
-                let startX = 0, startY = 0, startLeft = 0, startTop = 0;
-                headerEl.addEventListener('mousedown', (e) => {
-                    if (e.target.closest('.floating-log-btn')) return;
-                    if (savedState.maximized) return;
-                    dragging = true;
-                    const rect = panelEl.getBoundingClientRect();
-                    startX = e.clientX; startY = e.clientY;
-                    startLeft = rect.left; startTop = rect.top;
-                    panelEl.style.right = 'auto';
-                    panelEl.style.left = startLeft + 'px';
-                    panelEl.style.top = startTop + 'px';
-                    document.body.style.userSelect = 'none';
-                });
-                window.addEventListener('mousemove', (e) => {
-                    if (!dragging) return;
-                    const dx = e.clientX - startX;
-                    const dy = e.clientY - startY;
-                    let newLeft = startLeft + dx;
-                    let newTop = startTop + dy;
-                    const maxLeft = window.innerWidth - panelEl.offsetWidth - 4;
-                    const maxTop = window.innerHeight - 44;
-                    newLeft = Math.max(4, Math.min(maxLeft, newLeft));
-                    newTop = Math.max(4, Math.min(maxTop, newTop));
-                    panelEl.style.left = newLeft + 'px';
-                    panelEl.style.top = newTop + 'px';
-                });
-                window.addEventListener('mouseup', () => {
-                    if (dragging) {
-                        dragging = false;
-                        document.body.style.userSelect = '';
-                    }
-                });
-            }
-
-            function init() {
-                panelEl = document.getElementById('floating-log-panel');
-                headerEl = document.getElementById('floating-log-header');
-                bodyEl = document.getElementById('floating-log-body');
-                tabsEl = document.getElementById('floating-log-tabs');
-                toggleEl = document.getElementById('floating-log-toggle');
-                toggleBadgeEl = document.getElementById('floating-log-toggle-badge');
-                if (!panelEl) return;
-
-                loadState();
-
-                document.getElementById('btn-log-clear').addEventListener('click', clearActive);
-                document.getElementById('btn-log-minimize').addEventListener('click', toggleMinimized);
-                document.getElementById('btn-log-maximize').addEventListener('click', toggleMaximized);
-                document.getElementById('btn-log-close').addEventListener('click', () => setVisible(false));
-                toggleEl.addEventListener('click', () => setVisible(true));
-
-                tabsEl.querySelectorAll('.floating-log-tab').forEach(btn => {
-                    btn.addEventListener('click', () => setActiveTab(btn.dataset.logTab));
-                });
-
-                // Doble clic en la cabecera = maximizar/restaurar
-                headerEl.addEventListener('dblclick', (e) => {
-                    if (e.target.closest('.floating-log-btn')) return;
-                    toggleMaximized();
-                });
-
-                enableDrag();
-
-                // Aplicar estado guardado
-                setActiveTab(VALID_TABS.includes(savedState.activeTab) ? savedState.activeTab : 'download');
-                panelEl.classList.toggle('minimized', !!savedState.minimized);
-                panelEl.classList.toggle('maximized', !!savedState.maximized);
-                panelEl.classList.toggle('hidden', savedState.visible === false);
-                toggleEl.classList.toggle('visible', savedState.visible === false);
+            function clear() {
+                if (logEl) logEl.textContent = '';
+                recentMessages.clear();
+                unread = 0;
+                refreshCount();
             }
 
             function markBusy(tabId) {
-                if (!tabsEl) return;
-                const btn = tabsEl.querySelector(`.floating-log-tab[data-log-tab="${tabId}"]`);
-                if (!btn) return;
-                if (!btn.querySelector('.tab-spinner')) {
-                    const sp = document.createElement('span');
-                    sp.className = 'tab-spinner';
-                    btn.appendChild(sp);
-                }
+                busyTabs.add(tabId);
+                if (dockEl) dockEl.classList.add('busy');
             }
             function markIdle(tabId) {
-                if (!tabsEl) return;
-                const btn = tabsEl.querySelector(`.floating-log-tab[data-log-tab="${tabId}"]`);
-                if (btn) btn.querySelector('.tab-spinner')?.remove();
+                busyTabs.delete(tabId);
+                if (busyTabs.size === 0 && dockEl) dockEl.classList.remove('busy');
             }
 
-            return { init, append, clear, setActiveTab, setVisible, toggleVisible, markBusy, markIdle };
+            function init() {
+                dockEl   = document.getElementById('activity-dock');
+                logEl    = document.getElementById('dock-log');
+                handleEl = document.getElementById('activity-handle');
+                countEl  = document.getElementById('activity-count');
+                if (!dockEl) return;
+
+                loadState();
+                applyCollapsed();
+                refreshCount();
+
+                handleEl.addEventListener('click', () => setCollapsed(!collapsed));
+                document.getElementById('btn-log-clear').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    clear();
+                });
+            }
+
+            // --- Compatibilidad con la API anterior (ya no hay pestañas ni panel) ---
+            function setActiveTab() { /* sin pestañas: no-op */ }
+            function setVisible(visible) { if (visible) setCollapsed(false); }
+            function toggleVisible() { setCollapsed(!collapsed); }
+
+            return {
+                init, append, appendUnique, clear,
+                setActiveTab, setVisible, toggleVisible,
+                markBusy, markIdle, setCollapsed
+            };
         })();
 
         // FloatingLog es un `const` de ámbito de script, así que NO era una propiedad de
@@ -3615,9 +3649,11 @@
         function log(tabId, message) {
             FloatingLog.append(tabId, message);
         }
-        function clearLog(tabId) {
-            FloatingLog.clear(tabId);
-        }
+        // Antes cada pestaña tenía su propia consola y se limpiaba al empezar una
+        // operación. Ahora el registro es único, con marca de tiempo y etiqueta por
+        // origen, y se recorta solo: borrarlo entero en cada acción perdería contexto.
+        // Se conserva la función para no tocar sus ~15 llamadas.
+        function clearLog(_tabId) { /* no-op: usa el botón "Limpiar" del dock */ }
 
         // ========== ESPEJO DE LOS LOGS DEL SERVIDOR ==========
         // Mientras una operación larga está en curso, sondea /api/logs y volca la
@@ -3712,86 +3748,123 @@
         })();
 
         // ============================================================
-        // CARDS DE PROGRESO DE DESCARGA
+        // BADGES DE DESCARGA
+        // Una badge por canción: progreso mientras baja, ✓ / ✗ al terminar.
         // ============================================================
         const DownloadCards = (() => {
-            const FADE_DELAY = 6000; // ms hasta que desaparece la card completada
+            const MAX_BADGES = 40;      // badges visibles antes de descartar las más antiguas
+            const ERROR_FADE = 60000;   // ms hasta que se retira una badge con error
 
-            function _area() { return document.getElementById('dl-cards-area'); }
-
-            function _card(id) { return document.getElementById(`dlcard-${id}`); }
+            function _area() { return document.getElementById('dl-badges'); }
+            function _badge(id) { return document.getElementById(`dlb-${id}`); }
 
             function _shortLabel(urlOrTitle) {
                 if (!urlOrTitle) return 'Descarga';
-                // Si parece una URL, extraer el tramo final
+                const s = String(urlOrTitle);
                 try {
-                    const u = new URL(urlOrTitle);
+                    const u = new URL(s);
                     const v = u.searchParams.get('v');
-                    if (v) return `youtube.com/watch?v=${v}`;
-                    return u.hostname + u.pathname.slice(0, 30);
+                    if (v) return v;
+                    return u.hostname.replace(/^www\./, '');
                 } catch (_) {
-                    // Es un título: truncar
-                    return urlOrTitle.length > 55 ? urlOrTitle.slice(0, 52) + '…' : urlOrTitle;
+                    return s.length > 42 ? s.slice(0, 40) + '…' : s;
+                }
+            }
+
+            function _trim() {
+                const area = _area();
+                if (!area) return;
+                while (area.childElementCount > MAX_BADGES) {
+                    // Retira la badge terminada más antigua; nunca una en curso
+                    const old = area.querySelector('.dl-badge.is-done, .dl-badge.is-error');
+                    if (!old) break;
+                    old.remove();
                 }
             }
 
             function create(taskId, label) {
                 const area = _area();
-                if (!area || _card(taskId)) return;
-                const el = document.createElement('div');
-                el.className = 'dl-card';
-                el.id = `dlcard-${taskId}`;
+                if (!area || _badge(taskId)) return;
+                const el = document.createElement('span');
+                el.className = 'dl-badge';
+                el.id = `dlb-${taskId}`;
+                el.title = String(label || taskId);
                 el.innerHTML = `
-                    <div class="dl-card-row">
-                        <span style="font-size:12px">📥</span>
-                        <span class="dl-card-title">${_shortLabel(label)}</span>
-                        <span class="dl-card-pct">0%</span>
-                    </div>
-                    <div class="dl-bar-wrap"><div class="dl-bar-fill"></div></div>
-                    <div class="dl-card-meta">Iniciando…</div>`;
-                area.insertBefore(el, area.firstChild);
+                    <span class="dlb-fill"></span>
+                    <span class="dlb-ico">⬇</span>
+                    <span class="dlb-name"></span>
+                    <span class="dlb-pct">0%</span>`;
+                el.querySelector('.dlb-name').textContent = _shortLabel(label);
+                area.appendChild(el);
+                _trim();
             }
 
-            function update(taskId, { progress = 0, downloaded = 0, total = 0, speed = 0, eta = 0, stage = '' } = {}) {
-                const el = _card(taskId);
+            // Permite sustituir la URL por el título real en cuanto se conoce
+            function setLabel(taskId, label) {
+                const el = _badge(taskId);
+                if (!el || !label) return;
+                el.title = String(label);
+                el.querySelector('.dlb-name').textContent = _shortLabel(label);
+            }
+
+            function update(taskId, { progress = 0, downloaded = 0, total = 0, speed = 0, eta = 0, stage = '', queued = false, queuePos = 0, queueTotal = 0 } = {}) {
+                const el = _badge(taskId);
                 if (!el) return;
-                el.querySelector('.dl-card-pct').textContent = `${progress}%`;
-                el.querySelector('.dl-bar-fill').style.width = `${progress}%`;
+                if (el.classList.contains('is-done') || el.classList.contains('is-error')) return;
+
+                if (queued) {
+                    el.classList.add('is-queued');
+                    el.querySelector('.dlb-ico').textContent = '⏳';
+                    el.querySelector('.dlb-pct').textContent = queuePos ? `${queuePos}/${queueTotal || '?'}` : 'cola';
+                    el.querySelector('.dlb-fill').style.width = '100%';
+                    return;
+                }
+
+                el.classList.remove('is-queued');
+                el.querySelector('.dlb-ico').textContent = '⬇';
+                el.querySelector('.dlb-pct').textContent = `${progress}%`;
+                el.querySelector('.dlb-fill').style.width = `${progress}%`;
+
+                // El detalle (MB, velocidad, ETA) va al tooltip para no ensuciar la badge
                 let meta = stage || '';
                 if (total > 0) {
-                    const dlMB = (downloaded / 1048576).toFixed(1);
-                    const totMB = (total / 1048576).toFixed(1);
-                    meta = `${dlMB}/${totMB} MB`;
+                    meta = `${(downloaded / 1048576).toFixed(1)}/${(total / 1048576).toFixed(1)} MB`;
                     if (speed > 0) meta += ` · ${(speed / 1048576).toFixed(1)} MB/s`;
                     if (eta > 0) {
                         const m = Math.floor(eta / 60), s = eta % 60;
-                        meta += ` · ETA ${m}:${String(s).padStart(2,'0')}`;
+                        meta += ` · ETA ${m}:${String(s).padStart(2, '0')}`;
                     }
-                } else if (!meta && progress > 0) {
-                    meta = `Procesando… ${progress}%`;
                 }
-                el.querySelector('.dl-card-meta').textContent = meta;
+                if (meta) el.title = `${el.querySelector('.dlb-name').textContent} — ${meta}`;
             }
 
-            function finish(taskId, success, message) {
-                const el = _card(taskId);
+            function finish(taskId, success, message, kind) {
+                const el = _badge(taskId);
                 if (!el) return;
-                if (success) {
-                    el.classList.add('dl-done');
-                    el.querySelector('.dl-card-pct').textContent = '✓';
-                    el.querySelector('.dl-bar-fill').style.width = '100%';
-                } else {
-                    el.classList.add('dl-error');
-                    el.querySelector('.dl-card-pct').textContent = '✗';
+                el.classList.remove('is-queued');
+                el.classList.add(success ? 'is-done' : 'is-error');
+                el.querySelector('.dlb-ico').textContent = success ? '✓' : '✗';
+                el.querySelector('.dlb-pct').textContent = success ? '' : 'error';
+                if (!success && kind === 'unavailable') {
+                    el.classList.add('is-unavailable');
+                    el.querySelector('.dlb-ico').textContent = '🚫';
+                    el.querySelector('.dlb-pct').textContent = 'no disponible';
                 }
-                el.querySelector('.dl-card-meta').textContent = message || (success ? 'Completado' : 'Error');
-                setTimeout(() => {
-                    el.classList.add('dl-fading');
-                    setTimeout(() => el.remove(), 500);
-                }, FADE_DELAY);
+                el.querySelector('.dlb-fill').style.width = '100%';
+                if (message) el.title = `${el.querySelector('.dlb-name').textContent} — ${message}`;
+
+                // Las completadas se quedan como registro visual de la sesión;
+                // las fallidas se retiran solas pasado un minuto.
+                if (!success) {
+                    setTimeout(() => {
+                        el.classList.add('is-fading');
+                        setTimeout(() => el.remove(), 500);
+                    }, ERROR_FADE);
+                }
+                _trim();
             }
 
-            return { create, update, finish };
+            return { create, update, finish, setLabel };
         })();
         
         // ========== PESTAÑA: DESCARGAR ==========
@@ -4117,7 +4190,10 @@
                     const response = await fetch(`/api/download/status/${taskId}`);
                     const data = await response.json();
 
-                    // Actualizar card con progreso si la API devuelve el objeto completo
+                    // En cuanto el backend conoce la canción, la badge deja de mostrar la URL
+                    if (data.title) DownloadCards.setLabel(taskId, data.title);
+
+                    // Actualizar badge con progreso si la API devuelve el objeto completo
                     if (data.status && typeof data.status === 'object') {
                         const s = data.status;
                         DownloadCards.update(taskId, {
@@ -4730,6 +4806,7 @@
                 contextMenu.className = 'context-menu';
                 contextMenu.innerHTML = `
                     <div class="context-menu-item" onclick="playSelectedSong()">🎵 Escuchar canción</div>
+                    <div class="context-menu-item" onclick="downloadSelectedSong()">⬇️ Descargar MP3</div>
                     <div class="context-menu-item" onclick="measureVolumeFromContext()">📊 Recalcular volumen</div>
                     <div class="context-menu-item" onclick="adjustVolume(2)">🔊 Subir volumen (+2 dB)</div>
                     <div class="context-menu-item" onclick="adjustVolume(5)">🔊 Subir volumen (+5 dB)</div>
@@ -5233,6 +5310,21 @@
             loadDatabase();
         }
         
+        function downloadSelectedSong() {
+            if (!selectedVideoId) {
+                alert('No hay canción seleccionada');
+                return;
+            }
+            hideContextMenu();
+            log('database', `⬇️ Descargando MP3: ${selectedVideoId}`);
+            const a = document.createElement('a');
+            a.href = `/api/database/song/${encodeURIComponent(selectedVideoId)}/download`;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+
         async function playSelectedSong() {
             if (!selectedVideoId) {
                 alert('No hay canción seleccionada');
@@ -5345,6 +5437,150 @@
         let playlistInFlight = null;
         let playlistGeneration = 0;
 
+        // ========== AVISO DE COOKIES DE YOUTUBE ==========
+        // Centraliza el aviso cuando YouTube rechaza la sesión: banner superior,
+        // punto rojo en las pestañas afectadas y línea en el registro de actividad.
+        const CookiesAlert = (() => {
+            let current = null;   // último error mostrado
+            let checking = false;
+
+            function esc(t) { return String(t == null ? '' : t).replace(/</g, '&lt;'); }
+
+            function setTabDot(tabName, on) {
+                const btn = document.querySelector(`.tab[onclick="showTab('${tabName}')"]`);
+                if (!btn) return;
+                let dot = btn.querySelector('.tab-alert-dot');
+                if (on && !dot) {
+                    dot = document.createElement('span');
+                    dot.className = 'tab-alert-dot';
+                    dot.title = 'Cookies de YouTube caducadas';
+                    btn.appendChild(dot);
+                } else if (!on && dot) {
+                    dot.remove();
+                }
+            }
+
+            function show(info) {
+                if (!info) return;
+                current = info;
+                const banner = document.getElementById('cookies-alert-banner');
+                if (!banner) return;
+                document.getElementById('cookies-alert-title').textContent =
+                    info.title || 'Las cookies de YouTube han caducado';
+                document.getElementById('cookies-alert-text').textContent =
+                    info.hint || 'YouTube no reconoce la sesión. Renueva el archivo de cookies.';
+                const meta = [];
+                if (info.source) meta.push(`Fuente: ${info.source}`);
+                if (info.checked_at) meta.push(`Detectado: ${String(info.checked_at).replace('T', ' ')}`);
+                document.getElementById('cookies-alert-meta').textContent = meta.join(' · ');
+                const details = document.getElementById('cookies-alert-details');
+                if (info.error) {
+                    document.getElementById('cookies-alert-raw').textContent = info.error;
+                    details.style.display = 'block';
+                } else {
+                    details.style.display = 'none';
+                }
+                banner.style.display = 'block';
+                setTabDot('playlist', true);
+                setTabDot('config', true);
+                if (!document.title.startsWith('🍪')) document.title = '🍪 ' + document.title;
+            }
+
+            function hide() {
+                const banner = document.getElementById('cookies-alert-banner');
+                if (banner) banner.style.display = 'none';
+            }
+
+            // Las cookies vuelven a funcionar: quitar todo rastro del aviso
+            function clear() {
+                current = null;
+                hide();
+                setTabDot('playlist', false);
+                setTabDot('config', false);
+                document.title = document.title.replace(/^🍪 /, '');
+            }
+
+            function goToConfig() {
+                showTab('config');
+                const target = document.getElementById('config-cookies-paste');
+                if (target) setTimeout(() => {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    target.focus();
+                }, 50);
+            }
+
+            // HTML del aviso para la zona de resultados de la playlist
+            function inlineHtml(info) {
+                return `
+                    <div class="playlist-cookies-error">
+                        <h3>🍪 ${esc(info.title || 'Las cookies de YouTube han caducado')}</h3>
+                        <p>${esc(info.hint || '')}</p>
+                        <div class="actions">
+                            <button class="btn btn-warning" onclick="CookiesAlert.recheck()">🔄 Volver a probar</button>
+                            <button class="btn btn-primary" onclick="CookiesAlert.goToConfig()">📋 Pegar cookies nuevas</button>
+                        </div>
+                    </div>`;
+            }
+
+            // Vuelve a probar las cookies contra la playlist LM y recarga si funcionan
+            async function recheck() {
+                if (checking) return;
+                checking = true;
+                const btns = document.querySelectorAll('#cookies-alert-retry, .playlist-cookies-error .btn-warning');
+                btns.forEach(b => { b.disabled = true; b.textContent = '⏳ Probando...'; });
+                log('playlist', '🍪 Probando de nuevo las cookies de YouTube...');
+                try {
+                    const resp = await fetch('/api/config/cookies/test', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
+                    });
+                    const data = await resp.json();
+                    if (data.success) {
+                        log('playlist', `✅ Cookies OK: ${data.count} canciones en "${data.title || 'LM'}". Recargando playlist...`);
+                        clear();
+                        loadPlaylist();
+                    } else {
+                        log('playlist', `❌ ${data.title || 'Las cookies siguen sin funcionar'}: ${data.error || ''}`);
+                        show({
+                            title: data.title,
+                            hint: data.hint,
+                            error: data.stderr || data.error,
+                            source: data.source,
+                            checked_at: new Date().toISOString().slice(0, 19)
+                        });
+                    }
+                } catch (e) {
+                    log('playlist', `❌ No se pudo probar las cookies: ${e.message}`);
+                } finally {
+                    checking = false;
+                    btns.forEach(b => { b.disabled = false; b.textContent = '🔄 Volver a probar'; });
+                }
+            }
+
+            // Al arrancar: si el servidor ya sabe que las cookies fallan, avisar sin esperar
+            async function checkOnStartup() {
+                try {
+                    const resp = await fetch('/api/config/cookies/status');
+                    const data = await resp.json();
+                    const h = data && data.health;
+                    if (h && h.ok === false) {
+                        show(h);
+                    } else if (data && data.success && !data.source) {
+                        show({
+                            kind: 'no_cookies',
+                            title: 'No hay cookies de YouTube configuradas',
+                            hint: 'Sin cookies no se puede leer tu playlist "Me gusta". Configura YOUTUBE_COOKIES_FILE en el .env del servidor.'
+                        });
+                    }
+                } catch (e) {
+                    // Sin red o servidor caído: ya lo dirá la carga de la playlist
+                }
+            }
+
+            return { show, hide, clear, recheck, goToConfig, inlineHtml, checkOnStartup, get current() { return current; } };
+        })();
+
         async function loadPlaylist(options) {
             const opts = options || {};
             const playlistUrl = document.getElementById('playlist-url').value;
@@ -5400,7 +5636,14 @@
                 if (myGen !== playlistGeneration) return;
 
                 const secs = ((Date.now() - t0) / 1000).toFixed(1);
-                if (data.success) {
+                if (data.success && data.cookies_error) {
+                    const ce = data.cookies_error;
+                    document.getElementById('playlist-results').innerHTML = CookiesAlert.inlineHtml(ce);
+                    CookiesAlert.show(ce);
+                    log('playlist', `🍪 ${ce.title || 'Las cookies de YouTube han caducado'}`);
+                    log('playlist', `   💡 ${ce.hint || ''}`);
+                } else if (data.success) {
+                    CookiesAlert.clear();
                     renderPlaylist(data.videos);
                     log('playlist', `✅ Playlist cargada: ${data.count} canciones mostradas en ${secs}s`);
                     if (typeof data.skipped === 'number' && data.skipped > 0) {
@@ -5483,7 +5726,7 @@
                     '';
                 
                 return `
-                    <div class="song-item ${statusClass}" id="song-${video.id}">
+                    <div class="song-item ${statusClass}" id="song-${video.id}" data-title="${escapeHtml(video.title)}" data-artist="${escapeHtml(video.artist)}">
                         <div class="thumbnail-container" onclick="toggleVideo('${video.id}', '${video.url}')">
                             <img src="${video.thumbnail || ''}" alt="${video.title}" onerror="this.style.display='none'">
                         </div>
@@ -5547,6 +5790,13 @@
             log('playlist', `📥 Iniciando descarga: ${videoId}`);
             
             const songEl = document.getElementById(`song-${videoId}`);
+            // Badge de seguimiento en el dock de actividad
+            const titleEl = songEl ? songEl.querySelector('.song-title') : null;
+            const badgeLabel = titleEl
+                ? titleEl.textContent.replace(/^\s*\d+\.\s*/, '').trim()
+                : videoId;
+            DownloadCards.create(videoId, badgeLabel || videoId);
+            FloatingLog.markBusy('playlist');
             // Aún no sabemos si arrancará al momento o esperará hueco en el pool:
             // se muestra como "encolada" (amarillo) hasta que el primer poll de
             // monitorDownload() confirme el estado real ('queued' o 'downloading').
@@ -5579,7 +5829,12 @@
                 const response = await fetch('/api/download', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ video_id: videoId, url: videoUrl })
+                    body: JSON.stringify({
+                        video_id: videoId,
+                        url: videoUrl,
+                        title: songEl ? songEl.dataset.title || '' : '',
+                        artist: songEl ? songEl.dataset.artist || '' : ''
+                    })
                 });
                 
                 const data = await response.json();
@@ -5587,6 +5842,8 @@
                     monitorDownload(videoId);
                 } else {
                     log('playlist', `❌ Error: ${data.error}`);
+                    FloatingLog.markIdle('playlist');
+                    DownloadCards.finish(videoId, false, data.error);
                     songEl.classList.remove('downloading', 'queued');
                     buttons.forEach(btn => btn.disabled = false);
                     if (downloadBtn) {
@@ -5595,6 +5852,8 @@
                 }
             } catch (error) {
                 log('playlist', `❌ Error: ${error.message}`);
+                FloatingLog.markIdle('playlist');
+                DownloadCards.finish(videoId, false, error.message);
                 songEl.classList.remove('downloading', 'queued');
                 buttons.forEach(btn => btn.disabled = false);
                 if (downloadBtn) {
@@ -5624,6 +5883,46 @@
             }
         }
         
+        // Marca la fila como "no disponible en YouTube" y, si hay otra versión,
+        // la inserta justo debajo con sus propios botones (Descargar / Ignorar).
+        function markSongUnavailable(videoId, alt) {
+            const songEl = document.getElementById(`song-${videoId}`);
+            if (!songEl) return;
+            songEl.classList.remove('downloading', 'queued');
+            songEl.classList.add('unavailable');
+            songEl.querySelectorAll('button').forEach(btn => btn.remove());
+            const info = songEl.querySelector('.song-info');
+            if (info) {
+                info.querySelectorAll('.progress-container').forEach(el => el.remove());
+                const note = document.createElement('div');
+                note.className = 'unavail-note';
+                note.textContent = alt
+                    ? '🚫 Vídeo no disponible en YouTube · ignorada automáticamente · hay una alternativa debajo'
+                    : '🚫 Vídeo no disponible en YouTube · ignorada automáticamente · sin alternativa encontrada';
+                info.appendChild(note);
+            }
+            if (!alt || document.getElementById(`song-${alt.id}`)) return;
+
+            const jsq = t => escapeHtml(String(t || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+            const url = jsq(alt.url);
+            const mins = alt.duration ? ` · ${Math.floor(alt.duration / 60)}:${String(alt.duration % 60).padStart(2, '0')}` : '';
+            songEl.insertAdjacentHTML('afterend', `
+                <div class="song-item suggestion" id="song-${alt.id}" data-title="${escapeHtml(alt.title)}" data-artist="${escapeHtml(alt.artist)}">
+                    <div class="thumbnail-container" onclick="toggleVideo('${alt.id}', '${url}')">
+                        <img src="${escapeHtml(alt.thumbnail || '')}" alt="" onerror="this.style.display='none'">
+                    </div>
+                    <div class="song-info" style="flex: 1;">
+                        <span class="suggestion-tag">💡 Alternativa sugerida</span>
+                        <div class="song-title">${escapeHtml(alt.title)}</div>
+                        <div class="song-meta">🎤 ${escapeHtml(alt.artist || 'Desconocido')}${mins}</div>
+                    </div>
+                    <div class="song-actions">
+                        <button class="btn btn-success" onclick="downloadSong('${alt.id}', '${url}')">📥 Descargar esta</button>
+                        <button class="btn btn-danger" onclick="rejectSong('${alt.id}', '${url}', '${jsq(alt.title)}')">⊘ Ignorar</button>
+                    </div>
+                </div>`);
+        }
+
         function monitorDownload(videoId) {
             FloatingLog.markBusy('playlist');
             const songEl = document.getElementById(`song-${videoId}`);
@@ -5667,6 +5966,11 @@
                     if (status === 'queued') {
                         // Aún esperando hueco en el pool de descargas (solo 2 a la vez):
                         // barra plana en amarillo con la posición en cola, sin avanzar.
+                        DownloadCards.update(videoId, {
+                            queued: true,
+                            queuePos: data.status.queue_position || 0,
+                            queueTotal: data.status.queue_total || 0
+                        });
                         songEl.classList.add('queued');
                         songEl.classList.remove('downloading');
                         if (progressBar) {
@@ -5687,6 +5991,13 @@
                     }
 
                     // Ya arrancó de verdad (o terminó/falló): quitar restos visuales de "encolada"
+                    DownloadCards.update(videoId, {
+                        progress: progress,
+                        downloaded: data.status.downloaded_bytes || 0,
+                        total: data.status.total_bytes || 0,
+                        speed: data.status.speed || 0,
+                        eta: data.status.eta || 0
+                    });
                     songEl.classList.remove('queued');
                     if (progressInfo) {
                         progressInfo.style.color = '#666';
@@ -5742,20 +6053,17 @@
                         progressInfo.textContent = infoText;
                     }
                     
-                    // Volcar logs del backend en la consola flotante (sección 'playlist')
+                    // Volcar logs del backend en el registro (deduplicados entre sondeos)
                     if (Array.isArray(data.logs) && data.logs.length > 0) {
-                        const sectionEl = document.querySelector('#floating-log-body .log-section[data-log-section="playlist"]');
-                        const existing = sectionEl ? sectionEl.textContent : '';
                         data.logs.forEach(logMsg => {
-                            if (logMsg && !existing.includes(logMsg)) {
-                                log('playlist', logMsg);
-                            }
+                            if (logMsg) FloatingLog.appendUnique('playlist', logMsg);
                         });
                     }
 
                     if (status === 'completed') {
                         clearInterval(interval);
                         FloatingLog.markIdle('playlist');
+                        DownloadCards.finish(videoId, true, 'Completado');
                         if (progressBar) {
                             progressBar.style.width = '100%';
                             progressBar.textContent = '100%';
@@ -5764,9 +6072,18 @@
                         setTimeout(() => {
                             loadPlaylist();
                         }, 1000);
+                    } else if (status === 'error' && data.status.unavailable) {
+                        // El vídeo ya no existe en YouTube: el servidor lo ha ignorado
+                        // y puede traer otra versión de la canción como sugerencia.
+                        clearInterval(interval);
+                        FloatingLog.markIdle('playlist');
+                        DownloadCards.finish(videoId, false, data.status.error, 'unavailable');
+                        log('playlist', `🚫 ${data.status.error}`);
+                        markSongUnavailable(videoId, data.status.alternative);
                     } else if (status === 'error') {
                         clearInterval(interval);
                         FloatingLog.markIdle('playlist');
+                        DownloadCards.finish(videoId, false, data.status.error || 'Error desconocido');
                         log('playlist', `❌ Error: ${data.status.error || 'Error desconocido'}`);
                         if (data.status && data.status.error_detail) {
                             log('playlist', `📋 Detalle:\n${data.status.error_detail}`);
@@ -6113,6 +6430,57 @@
             btn.disabled = false;
         }
 
+        // Guarda las cookies pegadas en el servidor y, si se guardan, las prueba
+        async function saveCookiesText() {
+            const ta = document.getElementById('config-cookies-paste');
+            const btn = document.getElementById('config-cookies-save-btn');
+            const out = document.getElementById('config-cookies-save-result');
+            if (!ta || !btn || !out) return;
+            const esc = t => String(t == null ? '' : t).replace(/</g, '&lt;');
+
+            const text = ta.value.trim();
+            if (!text) {
+                out.innerHTML = '<p style="color:#dc3545;">❌ Pega primero el texto de las cookies.</p>';
+                ta.focus();
+                return;
+            }
+
+            btn.disabled = true;
+            out.innerHTML = '<p style="color:#555;">⏳ Guardando cookies en el servidor...</p>';
+            try {
+                const resp = await fetch('/api/config/cookies/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cookies: text })
+                });
+                const data = await resp.json();
+                if (!data.success) {
+                    out.innerHTML = `<p style="color:#dc3545;">❌ No se guardaron: ${esc(data.error || 'error desconocido')}</p>`;
+                    return;
+                }
+                const warn = (data.warnings || []).map(w => `<p style="margin:6px 0 0; color:#856404;">⚠️ ${esc(w)}</p>`).join('');
+                const session = (data.session_found || []).length
+                    ? `Cookies de sesión: <code>${data.session_found.join(', ')}</code>`
+                    : '<span style="color:#856404;">sin cookies de sesión</span>';
+                out.innerHTML = `
+                    <div style="padding:10px 12px; background:#d4edda; border-radius:6px; border:1px solid #c3e6cb;">
+                        <p style="margin:0; color:#155724;"><strong>✅ Cookies guardadas</strong> · ${data.count} cookies (${data.youtube_count} de youtube.com) en <code>${esc(data.path)}</code></p>
+                        <p style="margin:6px 0 0;">${session}</p>
+                        ${warn}
+                    </div>`;
+                // El texto ya está en el servidor: no dejarlo en pantalla
+                ta.value = '';
+                const fileInput = document.getElementById('config-cookies-file');
+                if (fileInput && !fileInput.value) fileInput.value = data.path || '';
+                log('playlist', `🍪 Cookies actualizadas desde la web (${data.count} cookies). Probando...`);
+                await testCookies();
+            } catch (e) {
+                out.innerHTML = `<p style="color:#dc3545;">❌ Error: ${esc(e.message)}</p>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         async function testCookies() {
             const btn = document.getElementById('config-cookies-test-btn');
             const resultEl = document.getElementById('config-cookies-test-result');
@@ -6123,6 +6491,7 @@
             btn.disabled = true;
             resultEl.innerHTML = '<p style="color:#555;">⏳ Guardando configuración y probando cookies (puede tardar 20-30 segundos)...</p>';
 
+            let remoteNote = '';
             try {
                 const saveResp = await fetch('/api/config', {
                     method: 'POST',
@@ -6130,16 +6499,21 @@
                     body: JSON.stringify(config)
                 });
                 const saveData = await saveResp.json();
-                if (!saveData.success) {
+                if (saveResp.status === 403) {
+                    // Modo remoto: la configuración se toca por SSH, pero probar las
+                    // cookies que el servidor ya tiene sí se puede.
+                    remoteNote = '<p style="margin:0 0 6px; color:#555; font-size:0.9em;">ℹ️ Modo remoto: se prueban las cookies configuradas en el servidor (los cambios de esta pantalla no se guardan).</p>';
+                    resultEl.innerHTML = '<p style="color:#555;">⏳ Probando las cookies del servidor (puede tardar 20-30 segundos)...</p>';
+                } else if (!saveData.success) {
                     resultEl.innerHTML = `<p style="color:#dc3545;">❌ No se pudo guardar la configuración: ${saveData.error || ''}</p>`;
                     return;
-                }
-
-                const reloadResp = await fetch('/api/config/reload', { method: 'POST' });
-                const reloadData = await reloadResp.json();
-                if (!reloadData.success) {
-                    resultEl.innerHTML = `<p style="color:#dc3545;">❌ No se pudo aplicar la configuración: ${reloadData.error || ''}</p>`;
-                    return;
+                } else {
+                    const reloadResp = await fetch('/api/config/reload', { method: 'POST' });
+                    const reloadData = await reloadResp.json();
+                    if (!reloadData.success) {
+                        resultEl.innerHTML = `<p style="color:#dc3545;">❌ No se pudo aplicar la configuración: ${reloadData.error || ''}</p>`;
+                        return;
+                    }
                 }
 
                 const resp = await fetch('/api/config/cookies/test', {
@@ -6153,8 +6527,12 @@
                     const sampleHtml = (data.sample || []).map(s =>
                         `<li>${(s.title || '(sin título)').replace(/</g, '&lt;')}</li>`
                     ).join('');
+                    const hadAlert = !!CookiesAlert.current;
+                    CookiesAlert.clear();
+                    if (hadAlert) loadPlaylist();
                     resultEl.innerHTML = `
                         <div style="padding:12px; background:#d4edda; border-radius:6px; border:1px solid #c3e6cb;">
+                            ${remoteNote}
                             <p style="margin:0 0 6px; color:#155724;"><strong>✅ Cookies OK</strong> · Fuente: <code>${data.source || ''}</code></p>
                             <p style="margin:0 0 6px;"><strong>Playlist:</strong> ${(data.title || 'LM').replace(/</g,'&lt;')} · <strong>${data.count}</strong> canciones obtenidas</p>
                             ${sampleHtml ? `<ul style="margin:6px 0 0 18px;">${sampleHtml}</ul>` : ''}
@@ -6163,9 +6541,17 @@
                     const stderr = data.stderr ? `<details style="margin-top:6px;"><summary>Salida de yt-dlp</summary><pre style="white-space:pre-wrap;">${(data.stderr || '').replace(/</g,'&lt;')}</pre></details>` : '';
                     const hint = data.hint ? `<p style="margin:6px 0 0; color:#856404;"><strong>💡</strong> ${(data.hint || '').replace(/</g,'&lt;')}</p>` : '';
                     const source = data.source ? ` · Fuente: <code>${data.source}</code>` : '';
+                    CookiesAlert.show({
+                        title: data.title,
+                        hint: data.hint,
+                        error: data.stderr || data.error,
+                        source: data.source,
+                        checked_at: new Date().toISOString().slice(0, 19)
+                    });
                     resultEl.innerHTML = `
                         <div style="padding:12px; background:#f8d7da; border-radius:6px; border:1px solid #f5c6cb;">
-                            <p style="margin:0 0 6px; color:#721c24;"><strong>❌ Las cookies no funcionan${source}</strong></p>
+                            ${remoteNote}
+                            <p style="margin:0 0 6px; color:#721c24;"><strong>❌ ${(data.title || 'Las cookies no funcionan').replace(/</g,'&lt;')}${source}</strong></p>
                             <p style="margin:0;">${(data.error || '').replace(/</g,'&lt;')}</p>
                             ${hint}
                             ${stderr}
@@ -6535,13 +6921,12 @@
         }
         
         // ============================================================
-        // MODO RADIO (reproductor flotante con shuffle de toda la BD)
+        // MODO RADIO (barra superior, shuffle de toda la BD)
+        // Integrado con la Media Session API: la reproducción sigue con la app
+        // minimizada y responde a los controles multimedia del sistema.
         // ============================================================
         const RadioPlayer = (() => {
-            const STORAGE_KEY = 'radioPlayerState_v1';
             const state = {
-                visible: false,
-                minimized: false,
                 playlist: [],     // canciones barajadas (objetos {video_id, title, artist, file_path, ...})
                 index: -1,        // índice de la canción actual dentro de playlist
                 isPlaying: false,
@@ -6550,43 +6935,12 @@
                 consecutiveErrors: 0
             };
 
-            let panelEl, audioEl, toggleEl;
-            let titleEl, artistEl, metaEl, statusEl;
-            let btnPlay, btnNext, btnMin, btnClose;
+            let barEl, audioEl;
+            let titleEl, artistEl, timeEl, coverEl, coverImgEl;
+            let btnPlay, btnNext, btnPrev, progressEl, progressFillEl;
             // Identifica la carga en curso: los eventos/rechazos de cargas
             // anteriores llegan tarde y no deben provocar saltos de pista.
             let loadToken = 0;
-
-            function loadPersisted() {
-                try {
-                    const raw = localStorage.getItem(STORAGE_KEY);
-                    if (raw) {
-                        const saved = JSON.parse(raw);
-                        if (typeof saved.visible === 'boolean') state.visible = saved.visible;
-                        if (typeof saved.minimized === 'boolean') state.minimized = saved.minimized;
-                    }
-                } catch (_) { /* ignorar */ }
-            }
-            function persist() {
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-                        visible: state.visible,
-                        minimized: state.minimized
-                    }));
-                } catch (_) { /* ignorar */ }
-            }
-
-            function setVisible(visible) {
-                state.visible = visible;
-                panelEl.classList.toggle('hidden', !visible);
-                toggleEl.classList.toggle('visible', !visible);
-                persist();
-            }
-            function setMinimized(min) {
-                state.minimized = min;
-                panelEl.classList.toggle('minimized', min);
-                persist();
-            }
 
             function shuffleInPlace(arr) {
                 for (let i = arr.length - 1; i > 0; i--) {
@@ -6607,30 +6961,79 @@
 
             function setStatus(msg, isError = false) {
                 state.lastError = isError ? msg : null;
-                statusEl.textContent = msg || '';
-                statusEl.classList.toggle('error', isError);
+                if (!msg) return;
+                artistEl.textContent = msg;
+                artistEl.classList.toggle('error', isError);
+                if (isError) log('radio', msg);
+            }
+
+            function fmtTime(sec) {
+                if (!isFinite(sec) || sec < 0) sec = 0;
+                const m = Math.floor(sec / 60);
+                const s = Math.floor(sec % 60);
+                return `${m}:${String(s).padStart(2, '0')}`;
+            }
+
+            function coverUrl(song) {
+                return song && song.video_id
+                    ? `/api/database/song/${encodeURIComponent(song.video_id)}/cover`
+                    : null;
             }
 
             function renderCurrent() {
                 const song = state.playlist[state.index];
                 if (!song) {
-                    titleEl.textContent = '— Sin canción cargada —';
+                    titleEl.textContent = 'Radio';
+                    artistEl.classList.remove('error');
                     artistEl.textContent = state.isLoading ? 'Cargando…' : 'Pulsa ▶ para empezar';
-                    metaEl.textContent = '';
+                    coverEl.classList.remove('has-art');
+                    coverImgEl.removeAttribute('src');
                 } else {
                     titleEl.textContent = song.title || '(sin título)';
-                    artistEl.textContent = song.artist || 'Desconocido';
-                    const parts = [];
+                    const parts = [song.artist || 'Desconocido'];
                     if (song.genre) parts.push(song.genre);
-                    if (song.year) parts.push(song.year);
                     parts.push(`${state.index + 1}/${state.playlist.length}`);
-                    metaEl.textContent = parts.join(' · ');
+                    artistEl.classList.remove('error');
+                    artistEl.textContent = parts.join(' · ');
+
+                    const url = coverUrl(song);
+                    if (url && coverImgEl.getAttribute('src') !== url) {
+                        coverImgEl.onload = () => coverEl.classList.add('has-art');
+                        coverImgEl.onerror = () => coverEl.classList.remove('has-art');
+                        coverEl.classList.remove('has-art');
+                        coverImgEl.src = url;
+                    }
                 }
                 btnPlay.textContent = state.isPlaying ? '⏸' : '▶';
                 btnPlay.title = state.isPlaying ? 'Pausar' : 'Play';
                 btnNext.disabled = state.playlist.length === 0;
-                panelEl.classList.toggle('is-playing', state.isPlaying);
-                toggleEl.classList.toggle('is-playing', state.isPlaying);
+                btnPrev.disabled = state.index <= 0;
+                barEl.classList.toggle('is-playing', state.isPlaying);
+            }
+
+            function renderProgress() {
+                const dur = audioEl.duration;
+                const cur = audioEl.currentTime || 0;
+                timeEl.textContent = `${fmtTime(cur)} / ${isFinite(dur) ? fmtTime(dur) : '0:00'}`;
+                progressFillEl.style.width = (isFinite(dur) && dur > 0)
+                    ? `${Math.min(100, (cur / dur) * 100)}%`
+                    : '0%';
+            }
+
+            // ---------- Controles del sistema (delegados en MediaControls) ----------
+            function updateMediaSession() {
+                const song = state.playlist[state.index];
+                if (!song) return;
+                MediaControls.setMetadata('bar', {
+                    title: song.title || '(sin título)',
+                    artist: song.artist || 'Desconocido',
+                    album: song.genre || 'Radio DJ',
+                    artworkUrl: coverUrl(song)
+                });
+            }
+
+            function updatePositionState() {
+                MediaControls.syncPosition('bar');
             }
 
             async function ensurePlaylist() {
@@ -6649,7 +7052,6 @@
                     state.playlist = shuffleInPlace(songs.slice());
                     state.index = -1;
                     state.consecutiveErrors = 0;
-                    setStatus(`${songs.length} canciones cargadas. Modo aleatorio activado.`);
                 } catch (e) {
                     setStatus(`Error al cargar canciones: ${e.message}`, true);
                     state.isLoading = false;
@@ -6668,6 +7070,7 @@
                 const url = `/api/database/file?path=${encodeURIComponent(song.file_path)}`;
                 audioEl.src = url;
                 renderCurrent();
+                updateMediaSession();
                 const playPromise = audioEl.play();
                 if (playPromise && typeof playPromise.then === 'function') {
                     playPromise.catch(err => {
@@ -6704,9 +7107,20 @@
                     // Re-barajar para seguir indefinidamente
                     shuffleInPlace(state.playlist);
                     nextIdx = 0;
-                    setStatus('Lista terminada, re-barajando…');
                 }
                 loadAndPlayIndex(nextIdx);
+            }
+
+            function prev() {
+                // Como en cualquier reproductor: si ya sonaron unos segundos, reinicia la pista
+                if (audioEl.currentTime > 3) {
+                    audioEl.currentTime = 0;
+                    return;
+                }
+                if (state.index > 0) {
+                    state.consecutiveErrors = 0;
+                    loadAndPlayIndex(state.index - 1);
+                }
             }
 
             function handleTrackError(token) {
@@ -6740,12 +7154,22 @@
                 }
             }
 
+            function seekFromPointer(clientX) {
+                const dur = audioEl.duration;
+                if (!isFinite(dur) || dur <= 0) return;
+                const rect = progressEl.getBoundingClientRect();
+                const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+                audioEl.currentTime = ratio * dur;
+                renderProgress();
+                updatePositionState();
+            }
+
             function bindAudioEvents() {
                 audioEl.addEventListener('play', () => {
                     state.isPlaying = true;
                     state.consecutiveErrors = 0;
-                    setStatus('');
                     renderCurrent();
+                    updatePositionState();
                 });
                 audioEl.addEventListener('pause', () => {
                     state.isPlaying = false;
@@ -6753,6 +7177,11 @@
                 });
                 audioEl.addEventListener('ended', () => {
                     next();
+                });
+                audioEl.addEventListener('timeupdate', renderProgress);
+                audioEl.addEventListener('loadedmetadata', () => {
+                    renderProgress();
+                    updatePositionState();
                 });
                 audioEl.addEventListener('error', () => {
                     // Sin src todavía, o carga cancelada por un cambio de pista: no es un fallo real
@@ -6764,39 +7193,39 @@
             }
 
             function init() {
-                panelEl   = document.getElementById('radio-player');
-                audioEl   = document.getElementById('radio-mini-audio');
-                toggleEl  = document.getElementById('radio-toggle');
-                titleEl   = document.getElementById('radio-track-title');
-                artistEl  = document.getElementById('radio-track-artist');
-                metaEl    = document.getElementById('radio-track-meta');
-                statusEl  = document.getElementById('radio-mini-status');
-                btnPlay   = document.getElementById('btn-radio-play');
-                btnNext   = document.getElementById('btn-radio-next');
-                btnMin    = document.getElementById('btn-radio-minimize');
-                btnClose  = document.getElementById('btn-radio-close');
+                barEl          = document.getElementById('radio-bar');
+                audioEl        = document.getElementById('radio-mini-audio');
+                titleEl        = document.getElementById('rb-title');
+                artistEl       = document.getElementById('rb-artist');
+                timeEl         = document.getElementById('rb-time');
+                coverEl        = document.getElementById('rb-cover');
+                coverImgEl     = document.getElementById('rb-cover-img');
+                btnPlay        = document.getElementById('rb-play');
+                btnNext        = document.getElementById('rb-next');
+                btnPrev        = document.getElementById('rb-prev');
+                progressEl     = document.getElementById('rb-progress');
+                progressFillEl = document.getElementById('rb-progress-fill');
 
-                if (!panelEl || !audioEl) return;
-
-                loadPersisted();
-                setVisible(state.visible);
-                setMinimized(state.minimized);
+                if (!barEl || !audioEl) return;
 
                 bindAudioEvents();
+                MediaControls.register('bar', {
+                    audio: audioEl,
+                    next: () => { state.consecutiveErrors = 0; next(); },
+                    prev: prev
+                });
+
                 btnPlay.addEventListener('click', togglePlay);
                 btnNext.addEventListener('click', () => {
                     // Salto pedido por el usuario: no cuenta como error
                     state.consecutiveErrors = 0;
                     next();
                 });
-                btnMin.addEventListener('click', () => setMinimized(!state.minimized));
-                btnClose.addEventListener('click', () => setVisible(false));
-                toggleEl.addEventListener('click', () => {
-                    setVisible(true);
-                    if (state.minimized) setMinimized(false);
-                });
+                btnPrev.addEventListener('click', prev);
+                progressEl.addEventListener('click', (e) => seekFromPointer(e.clientX));
 
                 renderCurrent();
+                renderProgress();
             }
 
             return { init };
@@ -6806,6 +7235,7 @@
         window.addEventListener('DOMContentLoaded', () => {
             FloatingLog.init();
             RadioPlayer.init();
+            CookiesAlert.checkOnStartup();
             loadPlaylist();
             checkFfmpegStatus();
         });

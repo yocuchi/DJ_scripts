@@ -53,12 +53,15 @@ from download_youtube import (
     detect_genre_online, get_output_folder, check_file_exists,
     register_song_in_db, add_id3_tags,
     save_rejected_video, is_rejected_video, sanitize_filename,
+    diagnose_unavailable_video, find_alternative_video,
     check_audio_volume, apply_volume_offset,
     get_liked_videos_from_url, process_imported_mp3,
     redownload_full, get_genre_from_essentia,
     generate_waveform_data,
     SUPPORTED_COOKIE_BROWSERS, get_cookies_browser, get_cookies_file,
-    apply_cookies_to_opts, has_cookies_configured
+    apply_cookies_to_opts, has_cookies_configured,
+    record_cookies_result, get_cookies_health, classify_cookies_error,
+    save_cookies_text, get_cookies_target_path
 )
 from download_quick import download_quick
 from query_db import show_statistics, search_songs
@@ -760,6 +763,22 @@ def get_playlist():
         if timed_out:
             print(f"    ⚠️  Resultado PARCIAL: se agotó el tiempo máximo ({PLAYLIST_TIMEOUT}s). "
                   f"Sube PLAYLIST_TIMEOUT en el .env o baja el número de canciones.")
+
+        # Si no salió nada y la última llamada a YouTube falló por la sesión,
+        # decirlo explícitamente: "0 canciones" a secas parece una lista vacía.
+        cookies_error = None
+        health = get_cookies_health()
+        if not videos_data and skipped_count == 0 and health.get('ok') is False:
+            cookies_error = {
+                'kind': health.get('kind'),
+                'title': health.get('title'),
+                'hint': health.get('hint'),
+                'error': health.get('error'),
+                'source': health.get('source'),
+                'checked_at': health.get('checked_at'),
+            }
+            print(f"    🍪 Causa: {cookies_error['title']}")
+
         return jsonify({
             'success': True,
             'videos': videos_data,
@@ -767,7 +786,8 @@ def get_playlist():
             'timed_out': timed_out,
             'skipped': skipped_count,
             'batches': batch_count,
-            'elapsed': round(elapsed, 2)
+            'elapsed': round(elapsed, 2),
+            'cookies_error': cookies_error
         })
     except Exception as e:
         elapsed = time.time() - start_time
@@ -787,6 +807,8 @@ def download_song():
     data = request.json
     video_id = data.get('video_id')
     video_url = data.get('url')
+    req_title = data.get('title') or ''
+    req_artist = data.get('artist') or ''
     
     if not video_id or not video_url:
         return jsonify({'success': False, 'error': 'Faltan parámetros'}), 400
@@ -859,6 +881,30 @@ def download_song():
             video_info = get_video_info(video_url)
             if not video_info:
                 add_log("❌ No se pudo obtener información del video")
+                # ¿Ha desaparecido de YouTube? Solo si YouTube lo dice expresamente
+                # (no si es un fallo de cookies o de red): entonces se ignora para
+                # que no vuelva a salir y se busca otra versión de la canción.
+                reason = diagnose_unavailable_video(video_id)
+                if reason:
+                    add_log(f"🚫 Vídeo no disponible en YouTube ({reason}): pasa a ignoradas")
+                    save_rejected_video(video_id, url=video_url, title=req_title,
+                                        reason=f"No disponible en YouTube: {reason}")
+                    alternative = None
+                    try:
+                        alternative = find_alternative_video(req_title, req_artist, exclude_ids=[video_id])
+                    except Exception as e_alt:
+                        add_log(f"⚠️  No se pudo buscar alternativa: {e_alt}")
+                    if alternative:
+                        add_log(f"💡 Alternativa sugerida: {alternative['title']} ({alternative['url']})")
+                    else:
+                        add_log("💡 No se ha encontrado ninguna alternativa")
+                    download_status[video_id] = {
+                        'status': 'error',
+                        'error': 'Vídeo no disponible en YouTube (ignorada)',
+                        'unavailable': True,
+                        'alternative': alternative,
+                    }
+                    return
                 download_status[video_id] = {'status': 'error', 'error': 'No se pudo obtener información del video'}
                 return
 
@@ -987,7 +1033,8 @@ def get_download_status(task_id):
             'status': task_status.get('status', 'idle'),
             'error': task_status.get('error'),
             'error_detail': task_status.get('error_detail'),
-            'file': task_status.get('file')
+            'file': task_status.get('file'),
+            'title': task_status.get('title')
         })
     
     # No loguear cuando el estado es 'idle' (polling normal)
@@ -1022,6 +1069,7 @@ def download_direct():
     direct_download_tasks[task_id] = {'status': 'downloading', 'url': url}
     
     def download_thread():
+        display_title = None
         try:
             # Extraer video_id de la URL
             match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
@@ -1052,7 +1100,15 @@ def download_direct():
             description = video_info.get('description', '')
             
             metadata = extract_metadata_from_title(title, description, video_info)
-            
+
+            # Nombre legible de la pista para que el frontend pueda etiquetar la
+            # descarga con la canción en lugar de con la URL.
+            if metadata.get('artist') and metadata.get('title'):
+                display_title = f"{metadata['artist']} - {metadata['title']}"
+            else:
+                display_title = metadata.get('title') or title
+            direct_download_tasks[task_id]['title'] = display_title
+
             if not metadata.get('genre'):
                 detected_genre = detect_genre_online(
                     metadata.get('artist'),
@@ -1086,15 +1142,15 @@ def download_direct():
                 add_id3_tags(str(mp3_file), metadata, video_info)
                 register_song_in_db(video_id, url, mp3_file, metadata, video_info, download_source='direct')
                 
-                direct_download_tasks[task_id] = {'status': 'completed', 'file': str(mp3_file)}
+                direct_download_tasks[task_id] = {'status': 'completed', 'file': str(mp3_file), 'title': display_title}
                 download_status[video_id] = {'status': 'completed', 'file': str(mp3_file)}
             else:
-                direct_download_tasks[task_id] = {'status': 'error', 'error': 'Error en la descarga (download_audio devolvió False)'}
+                direct_download_tasks[task_id] = {'status': 'error', 'error': 'Error en la descarga (download_audio devolvió False)', 'title': display_title}
                 
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
-            direct_download_tasks[task_id] = {'status': 'error', 'error': str(e), 'error_detail': tb}
+            direct_download_tasks[task_id] = {'status': 'error', 'error': str(e), 'error_detail': tb, 'title': display_title}
             if video_id:
                 download_logs[video_id].append(tb)
     
@@ -1999,6 +2055,34 @@ def api_redownload_full_status(task_id):
     })
 
 
+@app.route('/api/database/song/<video_id>/download', methods=['GET'])
+def download_song_file(video_id):
+    """Descarga el archivo de audio de una canción como adjunto."""
+    try:
+        song = db.get_song_by_video_id(video_id)
+        if not song or not song.get('file_path'):
+            return jsonify({'success': False, 'error': 'Canción no encontrada'}), 404
+
+        file_path_obj = _normalize_file_path_from_db(song['file_path'])
+        if not file_path_obj or not file_path_obj.exists():
+            return jsonify({'success': False, 'error': 'El archivo no existe'}), 404
+
+        try:
+            file_path_obj.resolve().relative_to(Path(MUSIC_FOLDER).resolve())
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Acceso denegado'}), 403
+
+        return send_file(
+            str(file_path_obj),
+            as_attachment=True,
+            download_name=file_path_obj.name
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/database/file', methods=['GET'])
 def serve_song_file():
     """Sirve un archivo de audio para reproducir."""
@@ -2330,8 +2414,43 @@ def get_cookies_status():
         'success': True,
         'source': source,
         'details': details,
-        'supported_browsers': list(SUPPORTED_COOKIE_BROWSERS)
+        'supported_browsers': list(SUPPORTED_COOKIE_BROWSERS),
+        'health': get_cookies_health()
     })
+
+
+@app.route('/api/config/cookies/upload', methods=['POST'])
+def upload_cookies_endpoint():
+    """
+    Guarda las cookies que el usuario pega en la web (formato Netscape o JSON de
+    extensión). Sólo escribe el archivo de cookies de la app, no la configuración
+    de la máquina, por eso está permitido también en modo remoto.
+    """
+    payload = request.get_json(silent=True) or {}
+    text = payload.get('cookies') or payload.get('text') or ''
+    if len(text) > 2_000_000:
+        return jsonify({'success': False, 'error': 'El texto es demasiado grande para ser un archivo de cookies.'}), 413
+
+    if get_cookies_browser():
+        return jsonify({
+            'success': False,
+            'error': 'La app está configurada para leer las cookies del navegador (YOUTUBE_COOKIES_BROWSER). '
+                     'Quita esa opción para usar un archivo de cookies.'
+        }), 400
+
+    try:
+        result = save_cookies_text(text)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except OSError as e:
+        return jsonify({'success': False, 'error': f'No se pudo escribir el archivo de cookies: {e}'}), 500
+
+    print(f"[{time.strftime('%H:%M:%S')}] 🍪 Cookies actualizadas desde la web: {result['count']} cookies "
+          f"({result['youtube_count']} de youtube.com) → {result['path']}")
+    for w in result['warnings']:
+        print(f"    ⚠️  {w}")
+
+    return jsonify({'success': True, **result})
 
 
 @app.route('/api/config/cookies/test', methods=['POST'])
@@ -2380,23 +2499,29 @@ def test_cookies_endpoint():
         stderr_text = buf.getvalue()
     except Exception as e:
         stderr_text = buf.getvalue()
+        classified = record_cookies_result(False, f"{stderr_text}\n{e}", test_url) or {}
         return jsonify({
             'success': False,
             'source': source_label,
             'error': f'{type(e).__name__}: {e}',
             'stderr': stderr_text.strip() or None,
-            'hint': _build_cookies_hint(str(e))
+            'hint': classified.get('hint') or _build_cookies_hint(str(e)),
+            'kind': classified.get('kind'),
+            'title': classified.get('title')
         })
     finally:
         _sys.stderr = old_stderr
 
     if not info:
+        classified = record_cookies_result(False, stderr_text, test_url) or {}
         return jsonify({
             'success': False,
             'source': source_label,
             'error': 'yt-dlp no devolvió información de la playlist',
             'stderr': stderr_text.strip() or None,
-            'hint': _build_cookies_hint(stderr_text)
+            'hint': classified.get('hint') or _build_cookies_hint(stderr_text),
+            'kind': classified.get('kind'),
+            'title': classified.get('title')
         })
 
     entries = info.get('entries') or []
@@ -2408,15 +2533,18 @@ def test_cookies_endpoint():
     entries = [e for e in entries if e is not None]
 
     if not entries:
+        classified = record_cookies_result(False, stderr_text or 'playlist sin canciones', test_url) or {}
         return jsonify({
             'success': False,
             'source': source_label,
-            'title': info.get('title'),
+            'title': classified.get('title') or info.get('title'),
             'error': 'La playlist se abrió pero no devolvió canciones (cookies posiblemente sin sesión válida)',
             'stderr': stderr_text.strip() or None,
-            'hint': _build_cookies_hint(stderr_text)
+            'hint': classified.get('hint') or _build_cookies_hint(stderr_text),
+            'kind': classified.get('kind')
         })
 
+    record_cookies_result(True, '', test_url)
     sample = [
         {'title': e.get('title'), 'id': e.get('id')}
         for e in entries[:3]
